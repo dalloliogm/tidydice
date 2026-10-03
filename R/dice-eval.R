@@ -120,7 +120,8 @@ parse_dice_expression <- function(dice_formula, require_dice = TRUE, validate = 
     assertthat::assert_that(sides >= 1, msg = "cannot roll a d0!")
     assertthat::assert_that(count <= MAX_DICE_ROLLED, msg = "Too many dice rolled.")
     st$n_dice <- st$n_dice + 1L
-    list(type = "dice", count = count, sides = sides, mods = list(), raw_mods = list())
+    list(type = "dice", id = st$n_dice, count = count, sides = sides, 
+         mods = list(), raw_mods = list())
   }
 
   # Add the modifiers that follow the dice
@@ -259,24 +260,75 @@ validate_modifier <- function(mod, count, sides, can_grow) {
 
 # --- Evaluator ---------------------------------------------------------------
 
+# Dice nodes of an expression, from left to right
+collect_dice_nodes <- function(node) {
+  switch(node$type,
+         dice = list(node),
+         neg = collect_dice_nodes(node$x),
+         binop = c(collect_dice_nodes(node$lhs), collect_dice_nodes(node$rhs)),
+         list())
+}
+
+#' Probabilities of the sides, for each group of dice of an expression
+#'
+#' @param node A tree returned by parse_dice_expression()
+#' @param prob NULL (fair dice), a vector of probabilities that is used for 
+#'   every group of dice, or a list with a vector (or NULL) for each group of
+#'   dice, from left to right
+#' @return A list with one element for each group of dice
+
+resolve_prob <- function(node, prob = NULL) {
+  groups <- collect_dice_nodes(node)
+  
+  if (is.null(prob)) {
+    return(rep(list(NULL), length(groups)))
+  }
+  if (is.list(prob)) {
+    assertthat::assert_that(
+      length(prob) == length(groups), 
+      msg = paste0("prob is a list with ", length(prob), " elements, but the formula has ", 
+                   length(groups), " groups of dice"))
+    probs <- prob
+  } else {
+    probs <- rep(list(prob), length(groups))
+  }
+  
+  for (i in seq_along(groups)) {
+    if (is.null(probs[[i]])) next
+    assertthat::assert_that(
+      is.numeric(probs[[i]]), 
+      msg = "prob must be numeric")
+    assertthat::assert_that(
+      length(probs[[i]]) == groups[[i]]$sides, 
+      msg = paste0("prob has ", length(probs[[i]]), " values, but dice group ", i, 
+                   " has ", groups[[i]]$sides, " sides. Use a list with one vector ", 
+                   "of probabilities for each group of dice to mix dice with different sides"))
+  }
+  probs
+}
+
 #' Evaluate a parsed dice expression
 #'
 #' @param node A tree returned by parse_dice_expression()
 #' @param n Number of times the expression is evaluated
-#' @param prob Vector of probabilities for each side of the dice (or NULL)
+#' @param prob Probabilities of the sides of the dice, see resolve_prob()
 #' @return Numeric vector of length n
 
 eval_dice_expression <- function(node, n, prob = NULL) {
+  eval_dice_node(node, n, resolve_prob(node, prob))
+}
+
+eval_dice_node <- function(node, n, probs) {
   switch(node$type,
     num = rep(node$value, n),
-    neg = -eval_dice_expression(node$x, n, prob),
+    neg = -eval_dice_node(node$x, n, probs),
     binop = {
-      lhs <- eval_dice_expression(node$lhs, n, prob)
-      rhs <- eval_dice_expression(node$rhs, n, prob)
+      lhs <- eval_dice_node(node$lhs, n, probs)
+      rhs <- eval_dice_node(node$rhs, n, probs)
       switch(node$op, "+" = lhs + rhs, "-" = lhs - rhs, "*" = lhs * rhs,
              "/" = lhs / rhs, "^" = lhs ^ rhs)
     },
-    dice = eval_dice_group(node, n, prob)
+    dice = eval_dice_group(node, n, probs[[node$id]])
   )
 }
 

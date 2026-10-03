@@ -130,7 +130,11 @@ flatten_dice_expression <- function(node, sign = "+") {
 #' @param rounds Number of rounds 
 #' @param success Which result is a success (default = 6)
 #' @param agg If TRUE, the result is aggregated (by experiment, rounds) (not implemented)
-#' @param prob Vector of probabilities for each side of the dice
+#' @param prob Vector of probabilities for each side of the dice (unfair dice). 
+#'   A vector is used for all the dice of the formula, so all of them need the 
+#'   same number of sides. To mix dice, use a list with one vector 
+#'   for each group of dice, from left to right (`NULL` = fair dice), 
+#'   e.g. `prob = list(c(.5, .1, .1, .1, .1, .1), NULL)` for `"1d6+1d4"`.
 #' @param seed Seed to produce reproducible results
 #' @param label Custom text to distinguish an experiment, can be used for plotting etc.
 #' @return Result of experiment as a tibble
@@ -171,6 +175,12 @@ flatten_dice_expression <- function(node, sign = "+") {
 #' 
 #' # more than one group of dice
 #' roll_dice_formula(dice_formula = "1d8+1d6+2")
+#' 
+#' # unfair dice: the 6 is twice as likely as any other side
+#' roll_dice_formula(dice_formula = "3d6", prob = c(1, 1, 1, 1, 1, 2))
+#' 
+#' # unfair d6 plus fair d4
+#' roll_dice_formula(dice_formula = "1d6+1d4", prob = list(c(1, 1, 1, 1, 1, 5), NULL))
 #' 
 #' # roll one 20-sided dice, and add 4
 #' roll_dice_formula(dice_formula = "1d20+4")

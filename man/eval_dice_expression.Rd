@@ -11,7 +11,7 @@ eval_dice_expression(node, n, prob = NULL)
 
 \item{n}{Number of times the expression is evaluated}
 
-\item{prob}{Vector of probabilities for each side of the dice (or NULL)}
+\item{prob}{Probabilities of the sides of the dice, see resolve_prob()}
 }
 \value{
 Numeric vector of length n

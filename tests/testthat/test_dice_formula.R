@@ -495,3 +495,35 @@ test_that("data argument: first experiment, shortcuts and piping", {
   three <- two %>% roll_dice_formula("3d6")
   expect_equal(max(three$experiment), 3)
 })
+
+test_that("prob: unfair dice", {
+  mean_of <- function(f, ..., times = 20000) {
+    mean(roll_dice_formula(f, times = times, seed = 1, ...)$result)
+  }
+  
+  # one vector is used for all dice of the formula
+  expect_equal(mean_of("2d3", prob = c(0, 0, 1)), 6)
+  expect_equal(mean_of("1d3+1d3", prob = c(0, 1, 0)), 4)
+  # weights do not need to sum to 1
+  expect_equal(mean_of("1d3", prob = c(1, 1, 2)), (1 + 2 + 6) / 4, tolerance = 0.02)
+  
+  # a vector needs the same number of sides in every group
+  expect_error(roll_dice_formula("1d6+1d4", prob = rep(1, 6)), 
+               "has 6 values, but dice group 2 has 4 sides")
+  
+  # a list: one vector (or NULL = fair) for each group of dice, left to right
+  expect_equal(mean_of("1d6+1d4", prob = list(c(0,0,0,0,0,1), NULL)), 6 + 2.5, tolerance = 0.01)
+  expect_equal(mean_of("1d6+1d4", prob = list(NULL, c(0,0,0,1))), 3.5 + 4, tolerance = 0.01)
+  expect_equal(mean_of("(1d6+1d4)*2", prob = list(c(1,0,0,0,0,0), c(0,0,0,1))), 10)
+  expect_equal(mean_of("1d6", prob = list(c(0,0,0,0,0,1))), 6)
+  expect_error(roll_dice_formula("1d6+1d4", prob = list(NULL)), 
+               "list with 1 elements, but the formula has 2 groups")
+  expect_error(roll_dice_formula("1d6+1d4", prob = list(NULL, c(1, 1))), 
+               "dice group 2 has 4 sides")
+  expect_error(roll_dice_formula("1d6", prob = "a"), "prob must be numeric")
+  
+  # with modifiers: rerolls, explosions and extra dice use the probabilities
+  expect_true(all(roll_dice_formula("2d3rr1", times = 50, prob = c(.5, .5, 0))$result == 4))
+  expect_equal(mean_of("1d3e3", prob = c(0, .5, .5)), 5, tolerance = 0.03) # E = .5 * 2 + .5 * (3 + E)
+  expect_equal(mean_of("1d3e1+1d2", prob = list(c(0, 1, 0), c(0, 1))), 4)
+})

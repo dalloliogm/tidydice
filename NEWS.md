@@ -3,6 +3,10 @@
 * plot_dice(): results that are not a dice face (a sum like 13, 0 or less, a 
   decimal) are drawn as a number on a blank dice. Before, they gave a ggplot 
   warning, and a decimal like 2.5 was drawn as the face 2.
+* roll_dice_formula(): `prob` can be a list with the probabilities of each group
+  of dice (`prob = list(c(.5, .1, .1, .1, .1, .1), NULL)` for `"1d6+1d4"`), so
+  unfair dice can be mixed with dice with a different number of sides. A vector 
+  that doesn't fit a group now gives a clear error.
 * roll_dice_formula() has a new parser and evaluator that follows the syntax of
   Avrae's d20 library:
     * several dice groups and numbers now work (`1d8+1d6+2`); before, only the
