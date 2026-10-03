@@ -24,11 +24,11 @@ plot_single_coin <- function(ggplot = NULL, result = 1, x = 0, y = 0, width = 0.
     # plot dice  
     p <- ggplot +
       geom_polygon(data = circle, aes(x,y), 
-                   color = line_color, fill = fill, size = line_size) 
+                   color = line_color, fill = fill, linewidth = line_size) 
   } else  {
     # add plot dice  
     p <- ggplot() +
-      geom_polygon(data = circle, aes(x,y,), color = line_color, fill = fill, size = line_size) 
+      geom_polygon(data = circle, aes(x,y,), color = line_color, fill = fill, linewidth = line_size) 
   } #if  
   
   # return ggplot object

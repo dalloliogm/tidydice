@@ -13,7 +13,8 @@ roll_dice_formula(
   prob = NULL,
   success = c(6),
   agg = FALSE,
-  label = NULL
+  label = NULL,
+  detail = FALSE
 )
 }
 \arguments{
@@ -39,6 +40,13 @@ e.g. \code{prob = list(c(.5, .1, .1, .1, .1, .1), NULL)} for \code{"1d6+1d4"}.}
 \item{agg}{If TRUE, the result is aggregated (by experiment, rounds) (not implemented)}
 
 \item{label}{Custom text to distinguish an experiment, can be used for plotting etc.}
+
+\item{detail}{If TRUE, the result has a column \code{dice} with the dice that were
+rolled for each result: a tibble with the columns \code{group} (position of the
+dice group in the formula), \code{sides}, \code{value} and \code{kept} (FALSE for dice dropped
+by a modifier, e.g. the lowest die in \verb{4d6pl1}). Rerolled dice show their last
+value, and exploded dice are added. plot_dice() draws one die for each of them.
+The column is not created if \code{agg} is TRUE.}
 }
 \value{
 Result of experiment as a tibble
@@ -121,6 +129,9 @@ roll_dice_formula(dice_formula = "3d6", prob = c(1, 1, 1, 1, 1, 2))
 
 # unfair d6 plus fair d4
 roll_dice_formula(dice_formula = "1d6+1d4", prob = list(c(1, 1, 1, 1, 1, 5), NULL))
+
+# keep the dice that were rolled, e.g. to plot them
+roll_dice_formula(dice_formula = "4d6pl1", times = 2, detail = TRUE)$dice
 
 # roll one 20-sided dice, and add 4
 roll_dice_formula(dice_formula = "1d20+4")

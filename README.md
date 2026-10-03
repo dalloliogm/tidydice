@@ -156,6 +156,14 @@ roll_dice_formula(
 
 The syntax follows [Avrae's d20](https://github.com/avrae/d20) (modifiers ```k```, ```p```, ```rr```, ```ro```, ```ra```, ```e```, ```mi```, ```ma```). See ```?roll_dice_formula``` for all selectors.
 
+Use ```detail = TRUE``` to keep the dice that were rolled, then ```plot_dice()``` draws every die (dropped dice are grey). Unfair dice use ```prob``` (a list of probabilities for formulas with different dice):
+
+```r
+roll_dice_formula("4d6pl1", times = 3, rounds = 3, success = 15:18, detail = TRUE) %>%
+  plot_dice()
+roll_dice_formula("1d6+1d4", prob = list(c(1, 1, 1, 1, 1, 5), NULL))
+```
+
 ## Flip coin
 
 ```r

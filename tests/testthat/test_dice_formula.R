@@ -527,3 +527,59 @@ test_that("prob: unfair dice", {
   expect_equal(mean_of("1d3e3", prob = c(0, .5, .5)), 5, tolerance = 0.03) # E = .5 * 2 + .5 * (3 + E)
   expect_equal(mean_of("1d3e1+1d2", prob = list(c(0, 1, 0), c(0, 1))), 4)
 })
+
+test_that("detail: the dice that were rolled", {
+  # not there by default, nor with agg
+  expect_false("dice" %in% names(roll_dice_formula("2d6")))
+  expect_false("dice" %in% names(roll_dice_formula("2d6", detail = TRUE, agg = TRUE)))
+  
+  d <- roll_dice_formula("4d6pl1", times = 5, rounds = 2, detail = TRUE, seed = 1)
+  expect_equal(nrow(d), 10)
+  expect_true(is.list(d$dice))
+  expect_equal(names(d$dice[[1]]), c("group", "sides", "value", "kept"))
+  expect_true(all(vapply(d$dice, nrow, integer(1)) == 4))
+  expect_true(all(vapply(d$dice, function(x) sum(!x$kept), numeric(1)) == 1))
+  
+  # the kept dice add up to the result: for additions, with every modifier
+  for (f in c("3d6", "4d6pl1", "4d6kh3", "5d6e6kh3", "3d6rr1ro2", "2d6mi3", "3d6ra<3", 
+              "1d6+1d4", "2d6e5+1d4e>2+3", "50d6k>3")) {
+    extra <- if (grepl("\\+3$", f)) 3 else 0
+    d <- roll_dice_formula(f, times = 200, detail = TRUE, seed = 2)
+    sums <- vapply(d$dice, function(x) sum(x$value[x$kept]), numeric(1)) + extra
+    expect_equal(sums, d$result, info = f)
+  }
+  
+  # group and sides of each die
+  d <- roll_dice_formula("2d6+1d4", times = 20, detail = TRUE, seed = 3)
+  expect_true(all(vapply(d$dice, function(x) all(x$group == c(1, 1, 2)), logical(1))))
+  expect_true(all(vapply(d$dice, function(x) all(x$sides == c(6, 6, 4)), logical(1))))
+  expect_true(all(vapply(d$dice, function(x) all(x$value[3] <= 4), logical(1))))
+  
+  # exploded dice are added, dice that are not rolled are not there
+  d <- roll_dice_formula("1d6e6", times = 300, detail = TRUE, seed = 4)
+  n_dice <- vapply(d$dice, nrow, integer(1))
+  expect_true(any(n_dice > 1))
+  expect_true(all(vapply(d$dice, function(x) all(utils::head(x$value, -1) == 6), logical(1))))
+  d <- roll_dice_formula("3d6ra<7", times = 10, detail = TRUE)
+  expect_true(all(vapply(d$dice, nrow, integer(1)) == 4))
+  
+  # numbers have no dice
+  d <- roll_dice_formula("1d1+5", detail = TRUE)
+  expect_equal(nrow(d$dice[[1]]), 1)
+  
+  # same results with and without detail
+  expect_equal(roll_dice_formula("4d6e6kh3", times = 50, seed = 5)$result,
+               roll_dice_formula("4d6e6kh3", times = 50, seed = 5, detail = TRUE)$result)
+  
+  # chunks: every roll has its dice
+  d <- roll_dice_formula("2d6e6", times = 60000, detail = TRUE, seed = 6)
+  expect_equal(length(d$dice), 60000)
+  expect_equal(vapply(d$dice[c(1, 50001, 60000)], function(x) sum(x$value), numeric(1)), 
+               d$result[c(1, 50001, 60000)])
+  
+  # piping: experiments with and without dice
+  two <- roll_dice_formula("1d6", times = 2) %>% 
+    roll_dice_formula("2d6", times = 2, detail = TRUE)
+  expect_equal(nrow(two), 4)
+  expect_equal(vapply(two$dice, is.null, logical(1)), c(TRUE, TRUE, FALSE, FALSE))
+})

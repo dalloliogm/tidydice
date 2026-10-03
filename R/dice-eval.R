@@ -312,32 +312,59 @@ resolve_prob <- function(node, prob = NULL) {
 #' @param node A tree returned by parse_dice_expression()
 #' @param n Number of times the expression is evaluated
 #' @param prob Probabilities of the sides of the dice, see resolve_prob()
-#' @return Numeric vector of length n
+#' @param detail If TRUE, keep the dice that were rolled (in the attribute `dice`)
+#' @return Numeric vector of length n. With `detail`, it has an attribute `dice`: 
+#'   a list of n tibbles (group, sides, value, kept), one row for each die. 
+#'   Dice that are not `kept` were dropped by a modifier.
 
-eval_dice_expression <- function(node, n, prob = NULL) {
-  eval_dice_node(node, n, resolve_prob(node, prob))
+eval_dice_expression <- function(node, n, prob = NULL, detail = FALSE) {
+  collector <- NULL
+  if (detail) {
+    collector <- new.env()
+    collector$groups <- list()
+  }
+  
+  total <- eval_dice_node(node, n, resolve_prob(node, prob), collector)
+  
+  if (detail) {
+    groups <- Filter(Negate(is.null), collector$groups)
+    attr(total, "dice") <- lapply(seq_len(n), function(i) {
+      tibble::as_tibble(do.call(rbind, lapply(groups, `[[`, i)))
+    })
+  }
+  total
 }
 
-eval_dice_node <- function(node, n, probs) {
+eval_dice_node <- function(node, n, probs, collector = NULL) {
   switch(node$type,
     num = rep(node$value, n),
-    neg = -eval_dice_node(node$x, n, probs),
+    neg = -eval_dice_node(node$x, n, probs, collector),
     binop = {
-      lhs <- eval_dice_node(node$lhs, n, probs)
-      rhs <- eval_dice_node(node$rhs, n, probs)
+      lhs <- eval_dice_node(node$lhs, n, probs, collector)
+      rhs <- eval_dice_node(node$rhs, n, probs, collector)
       switch(node$op, "+" = lhs + rhs, "-" = lhs - rhs, "*" = lhs * rhs,
              "/" = lhs / rhs, "^" = lhs ^ rhs)
     },
-    dice = eval_dice_group(node, n, probs[[node$id]])
+    dice = eval_dice_group(node, n, probs[[node$id]], collector)
   )
 }
 
+# The dice of each set (row of the matrices) as data frames
+dice_rows <- function(node, values, present, kept) {
+  lapply(seq_len(nrow(values)), function(i) {
+    ok <- present[i, ]
+    data.frame(group = node$id, sides = node$sides, 
+               value = as.numeric(values[i, ok]), kept = kept[i, ok])
+  })
+}
+
 # Roll a group of dice (e.g. 4d6e6kh3) n times, return the n totals
-eval_dice_group <- function(node, n, prob) {
+eval_dice_group <- function(node, n, prob, collector = NULL) {
   
   roll <- function(k) {
     sample(x = seq_len(node$sides), size = k, replace = TRUE, prob = prob)
   }
+  detail <- !is.null(collector)
   
   # The sets of dice are handled together as matrices, in chunks to limit the 
   # memory used (many dice, or dice that explode)
@@ -347,15 +374,31 @@ eval_dice_group <- function(node, n, prob) {
     50000
   }
   starts <- seq(1, n, by = chunk_size)
-  unlist(lapply(starts, function(start) {
+  rows <- list()
+  totals <- lapply(starts, function(start) {
     n_chunk <- min(chunk_size, n - start + 1)
     if (length(node$mods) == 0) {
       # without modifiers all dice are summed
-      rowSums(matrix(roll(n_chunk * node$count), nrow = n_chunk, ncol = node$count))
+      values <- matrix(roll(n_chunk * node$count), nrow = n_chunk, ncol = node$count)
+      if (detail) {
+        all_dice <- matrix(TRUE, nrow = n_chunk, ncol = node$count)
+        rows <<- c(rows, dice_rows(node, values, all_dice, all_dice))
+      }
+      rowSums(values)
     } else {
-      roll_dice_sets(n_chunk, node$count, node$mods, roll)
+      res <- roll_dice_sets(n_chunk, node$count, node$mods, roll, detail)
+      if (detail) {
+        rows <<- c(rows, dice_rows(node, res$values, res$present, res$kept))
+        res$total
+      } else {
+        res
+      }
     }
-  }), use.names = FALSE)
+  })
+  if (detail) {
+    collector$groups[[node$id]] <- rows
+  }
+  unlist(totals, use.names = FALSE)
 }
 
 # Does a value match any of the selectors (that do not depend on other dice)?
@@ -387,7 +430,7 @@ select_dice <- function(sels, values, kept) {
 # Roll n sets of dice at once and apply the modifiers, in the order they 
 # are written. A set is a row of the matrix `values`: `kept` tells which dice
 # still count (not dropped, and present: sets can have different sizes).
-roll_dice_sets <- function(n, count, mods, roll) {
+roll_dice_sets <- function(n, count, mods, roll, detail = FALSE) {
   
   values <- matrix(roll(n * count), nrow = n, ncol = count)
   kept <- matrix(TRUE, nrow = n, ncol = count)
@@ -490,6 +533,12 @@ roll_dice_sets <- function(n, count, mods, roll) {
     )
   }
   
-  values[!kept] <- 0
-  rowSums(values)
+  counted <- values
+  counted[!kept] <- 0
+  total <- rowSums(counted)
+  if (!detail) {
+    return(total)
+  }
+  # absent dice (sets can have different sizes) have no value
+  list(total = total, values = values, present = !is.na(values), kept = kept)
 }

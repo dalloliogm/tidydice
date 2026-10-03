@@ -1,5 +1,13 @@
 ## tidydice (development version)
 
+* plot_dice() and plot_coin() use `linewidth` instead of `size` for lines, which is 
+  deprecated in ggplot2 3.4.0 (needs ggplot2 >= 3.4.0). Before, ggplot2 warned about it 
+  the first time a plot was drawn in a session.
+* roll_dice_formula(detail = TRUE) adds a column `dice` with the dice that were 
+  rolled for each result (value, sides, dice group, and whether the die was kept 
+  or dropped). plot_dice() uses it to draw every die of a roll (`4d6pl1` shows 
+  four dice, the dropped one in grey), see the new `by_die` and `fill_dropped` 
+  parameters.
 * binom_dice() and binom_coin() have a `prob` parameter for unfair dice and coins
   (like roll_dice() and flip_coin()), so plot_binom() can show them. Sides that 
   are listed twice in `success`, or that don't exist (0, 7 on a d6), are no longer 

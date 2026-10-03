@@ -4,7 +4,7 @@
 \alias{eval_dice_expression}
 \title{Evaluate a parsed dice expression}
 \usage{
-eval_dice_expression(node, n, prob = NULL)
+eval_dice_expression(node, n, prob = NULL, detail = FALSE)
 }
 \arguments{
 \item{node}{A tree returned by parse_dice_expression()}
@@ -12,9 +12,13 @@ eval_dice_expression(node, n, prob = NULL)
 \item{n}{Number of times the expression is evaluated}
 
 \item{prob}{Probabilities of the sides of the dice, see resolve_prob()}
+
+\item{detail}{If TRUE, keep the dice that were rolled (in the attribute \code{dice})}
 }
 \value{
-Numeric vector of length n
+Numeric vector of length n. With \code{detail}, it has an attribute \code{dice}:
+a list of n tibbles (group, sides, value, kept), one row for each die.
+Dice that are not \code{kept} were dropped by a modifier.
 }
 \description{
 Evaluate a parsed dice expression

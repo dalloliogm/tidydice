@@ -137,6 +137,12 @@ flatten_dice_expression <- function(node, sign = "+") {
 #'   e.g. `prob = list(c(.5, .1, .1, .1, .1, .1), NULL)` for `"1d6+1d4"`.
 #' @param seed Seed to produce reproducible results
 #' @param label Custom text to distinguish an experiment, can be used for plotting etc.
+#' @param detail If TRUE, the result has a column `dice` with the dice that were 
+#'   rolled for each result: a tibble with the columns `group` (position of the 
+#'   dice group in the formula), `sides`, `value` and `kept` (FALSE for dice dropped 
+#'   by a modifier, e.g. the lowest die in `4d6pl1`). Rerolled dice show their last 
+#'   value, and exploded dice are added. plot_dice() draws one die for each of them.
+#'   The column is not created if `agg` is TRUE.
 #' @return Result of experiment as a tibble
 #' @export
 #' @examples
@@ -182,6 +188,9 @@ flatten_dice_expression <- function(node, sign = "+") {
 #' # unfair d6 plus fair d4
 #' roll_dice_formula(dice_formula = "1d6+1d4", prob = list(c(1, 1, 1, 1, 1, 5), NULL))
 #' 
+#' # keep the dice that were rolled, e.g. to plot them
+#' roll_dice_formula(dice_formula = "4d6pl1", times = 2, detail = TRUE)$dice
+#' 
 #' # roll one 20-sided dice, and add 4
 #' roll_dice_formula(dice_formula = "1d20+4")
 #' 
@@ -196,7 +205,8 @@ roll_dice_formula <- function(data=NULL,
                               prob=NULL, 
                               success = c(6),
                               agg=FALSE,
-                              label=NULL
+                              label=NULL,
+                              detail=FALSE
                               ) {
   assertthat::assert_that(is.character(dice_formula), msg = "dice_formula must be character")
 
@@ -236,11 +246,16 @@ roll_dice_formula <- function(data=NULL,
   # Parse the formula (see dice-eval.R), then roll it
   dice_expression <- parse_dice_expression(dice_formula)
   
+  result <- eval_dice_expression(dice_expression, n = rounds * times, prob = prob, 
+                                 detail = detail && !agg)
   result_df <- tibble::tibble(
     round = as.integer(rep(1:rounds, each = times)),
     nr    = as.integer(rep(1:times, times = rounds)),
-    result = eval_dice_expression(dice_expression, n = rounds * times, prob = prob)
+    result = as.vector(result)
   )
+  if (!is.null(attr(result, "dice"))) {
+    result_df$dice <- attr(result, "dice")
+  }
       
   # Compute success
   result_df = result_df %>%
@@ -251,7 +266,8 @@ roll_dice_formula <- function(data=NULL,
     mutate(experiment_id = 1,
            dice_formula = dice_formula,
            label=label) %>%
-    select(experiment_id, dice_formula, label, round, nr, result, success) 
+    select(experiment_id, dice_formula, label, round, nr, result, success, 
+           dplyr::any_of("dice")) 
   
   if (!is.data.frame(data))  {
     

@@ -188,6 +188,13 @@ binom_dice(times = 100) %>%
   plot_binom(title = "Binomial distribution, rolling 100 dice")
 ```
 
+For an unfair dice use ```prob```. Here the 6 is twice as likely as any other side:
+
+```{R echo=TRUE, fig.height=4, fig.width=7}
+binom_dice(times = 100, prob = c(1, 1, 1, 1, 1, 2)) %>% 
+  plot_binom(title = "Binomial distribution, rolling 100 unfair dice")
+```
+
 ```{R echo=TRUE}
 set.seed(123)
 roll_dice(times = 100, rounds = 10000, agg = TRUE) %>% 
@@ -453,6 +460,39 @@ roll_dice_formula("2d20kh1", rounds = 1000, label = "advantage") %>%
   roll_dice_formula("2d20kl1", rounds = 1000, label = "disadvantage") %>%
   dplyr::group_by(label) %>%
   dplyr::summarise(mean = mean(result), min = min(result), max = max(result))
+```
+
+With ```detail = TRUE``` the dice that were rolled are kept, and ```plot_dice()``` 
+draws every die. Dropped dice are grey, and successful rolls are gold:
+
+```{r fig.height=3, fig.width=6}
+roll_dice_formula(
+  dice_formula = "4d6pl1",
+  times = 3, rounds = 3,
+  success = 15:18,
+  detail = TRUE,
+  seed = 123) %>%
+  plot_dice()
+```
+
+Unfair dice use ```prob```, like in ```roll_dice()```. If a formula has dice with 
+different sides, use a list with the probabilities of each group of dice 
+(```NULL``` is a fair dice):
+
+```{r}
+roll_dice_formula(
+  dice_formula = "3d6",
+  prob = c(1, 1, 1, 1, 1, 5), # the 6 is 5 times more likely
+  times = 1000
+) %>%
+  dplyr::count(result)  %>%
+  dplyr::slice_max(n, n = 3)
+
+roll_dice_formula(
+  dice_formula = "1d6+1d4",
+  prob = list(c(1, 1, 1, 1, 1, 5), NULL), # unfair d6 + fair d4
+  seed = 123
+)
 ```
 
 ```{r fig.height=3, fig.width=6}
