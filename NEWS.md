@@ -1,12 +1,20 @@
 ## tidydice (development version)
 
-* roll_dice_formula(): exploding dice are now simulated die by die, replacing
-  the geometric-distribution approximation. This fixes wrong results with
-  several dice, `prob` and `kh`/`kl`.
-* roll_dice_formula(): add `e>N` and `e<N` (and bare `e`) exploding syntax,
-  as in Avrae.
-* roll_dice_formula(): `1d2e1` is now valid; a formula where every side 
-  explodes (e.g. `1d6e>1`) raises an error.
+* roll_dice_formula() has a new parser and evaluator that follows the syntax of
+  Avrae's d20 library:
+    * several dice groups and numbers now work (`1d8+1d6+2`); before, only the
+      first group was rolled and the rest was misread as a number
+    * parentheses and operator precedence (`(1d6+2)*2`)
+    * new modifiers: `p` (drop), `rr`, `ro`, `ra` (rerolls), `mi`, `ma`, 
+      `k` with selectors (`k>3`), `d%`
+    * selectors `N`, `<N`, `>N`, `hN`, `lN`; `<` and `>` are strict
+    * invalid or unsupported syntax is now an error instead of being silently 
+      ignored (e.g. `2d20h1` used to roll a plain `2d20`)
+* Exploding dice are simulated die by die, replacing the geometric-distribution 
+  approximation. This fixes wrong results with several dice, `prob` and
+  `kh`/`kl`. Exploded dice are part of the set that `k` and `p` work on.
+* `1d2e1` is now valid. An exploding or `rr` selector that matches every side
+  (endless loop) or no side is an error.
 
 ## tidydice 1.0.0 (2022-02-01)
 

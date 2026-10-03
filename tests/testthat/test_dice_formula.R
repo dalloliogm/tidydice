@@ -141,13 +141,13 @@ test_that("exploding dice", {
   expect_equal(2 %in% roll_dice_formula("1d6e2", times=200)$result, F) 
   
   # exploding dice should always be lower or equal to n. sides
-  expect_error(roll_dice_formula("1d4e6"))
+  expect_error(roll_dice_formula("1d4e6"), "no side of the dice matches")
 
   # 1d2e1 is valid (the die stops exploding on a 2), 1d1e1 would explode forever
   expect_equal(mean(roll_dice_formula("1d2e1", times=20000, seed=1)$result), 3, tolerance=0.03)
   expect_error(roll_dice_formula("1d1e1"), "every side would explode")
-  expect_error(roll_dice_formula("1d6e>1"), "every side would explode")
-  expect_error(roll_dice_formula("1d6e0"), "invalid exploding dice specification")
+  expect_error(roll_dice_formula("1d6e>0"), "every side would explode")
+  expect_error(roll_dice_formula("1d6e0"), "no side of the dice matches")
    
   # Expected values over many rolls
   expect_equal(
@@ -164,9 +164,8 @@ test_that("exploding dice", {
             mean(roll_dice_formula("1d6", times=2000)$result),
   )
   
-  # Bare "e" explodes on the highest side
-  expect_equal(roll_dice_formula("1d6e", times=50, seed=1)$result,
-               roll_dice_formula("1d6e6", times=50, seed=1)$result)
+  # Like in Avrae, "e" needs a selector
+  expect_error(roll_dice_formula("1d6e"), "needs a selector")
   
   # Exact expected values: E = 21/5 when exactly one side explodes
   expect_equal(mean(roll_dice_formula("1d6e6", times=20000, seed=1)$result), 
@@ -174,11 +173,13 @@ test_that("exploding dice", {
   expect_equal(mean(roll_dice_formula("1d6e2", times=20000, seed=1)$result), 
                4.2, tolerance=0.03)
   
-  # Comparators: e>5 explodes on 5 and 6, e<2 explodes on 1 and 2
-  expect_equal(mean(roll_dice_formula("1d6e>5", times=20000, seed=1)$result),
+  # Comparators are strict, like in Avrae: e>4 explodes on 5 and 6, e<3 on 1 and 2
+  expect_equal(mean(roll_dice_formula("1d6e>4", times=20000, seed=1)$result),
                5.25, tolerance=0.03)
-  expect_equal(mean(roll_dice_formula("1d6e<2", times=20000, seed=1)$result),
+  expect_equal(mean(roll_dice_formula("1d6e<3", times=20000, seed=1)$result),
                21/4, tolerance=0.03)
+  expect_equal(mean(roll_dice_formula("1d6e>5", times=20000, seed=1)$result),
+               4.2, tolerance=0.03)
   
   # Explosions are rolled per die: 10d6e6 mean is 10 * 4.2
   expect_equal(mean(roll_dice_formula("10d6e6", times=5000, seed=1)$result),
@@ -284,7 +285,7 @@ test_that("piping", {
       nrow,
     40)
   expect_equal(
-    roll_dice_formula("2d20h1", times=20, label="adv") %>% 
+    roll_dice_formula("2d20kh1", times=20, label="adv") %>% 
       roll_dice_formula("2d20kl1", times=20, label="dis") %>%
       count(label) %>%
       nrow,
@@ -324,4 +325,91 @@ test_that("other function parameters", {
     roll_dice_formula("24d4kl10e4", seed=1)$result != roll_dice_formula("24d4kl10e4", seed=2)$result, 
     T
   )
+})
+
+
+test_that("multiple dice groups and operator precedence", {
+  expect_equal(mean(roll_dice_formula("1d6+1d4", times=5000, seed=1)$result), 
+               3.5 + 2.5, tolerance=0.03)
+  expect_equal(mean(roll_dice_formula("2d6-1d4", times=5000, seed=1)$result), 
+               7 - 2.5, tolerance=0.03)
+  expect_equal(mean(roll_dice_formula("1d6e6+1d4+3", times=20000, seed=1)$result), 
+               4.2 + 2.5 + 3, tolerance=0.02)
+  expect_equal(mean(roll_dice_formula("-1d4+10", times=5000, seed=1)$result), 
+               10 - 2.5, tolerance=0.03)
+  
+  # * before +, parentheses, ^ before *
+  expect_equal(roll_dice_formula("1d1+2*3")$result, 7)
+  expect_equal(roll_dice_formula("(1d1+2)*3")$result, 9)
+  expect_equal(roll_dice_formula("2*1d1^3")$result, 2)
+  expect_equal(roll_dice_formula("2^3^2+1d1")$result, 513)
+  expect_equal(roll_dice_formula("2**3+1d1")$result, 9)
+  expect_equal(roll_dice_formula("1d1 + 1 d 1")$result, 2)
+  expect_error(roll_dice_formula("(1d6+2"), "missing closing parenthesis")
+})
+
+test_that("Avrae modifiers", {
+  # d20 syntax: k, p, rr, ro, ra, e, mi, ma, d%
+  mean_of <- function(f, times = 20000) {
+    mean(roll_dice_formula(f, times = times, seed = 1)$result)
+  }
+  
+  # Keep / drop with selectors
+  expect_equal(mean_of("4d6kh3"), 12.24, tolerance = 0.01)
+  expect_equal(mean_of("4d6pl1"), mean_of("4d6kh3"), tolerance = 0.01)
+  expect_equal(mean_of("1d6k>4"), 11/6, tolerance = 0.03) # 5, 6 kept, else 0
+  expect_equal(mean_of("1d6k5"), 5/6, tolerance = 0.03)
+  expect_equal(mean_of("1d6p<3"), 18/6, tolerance = 0.03) # 1, 2 dropped
+  expect_equal(mean_of("1d6p3"), (21-3)/6, tolerance = 0.03)
+  
+  # Reroll: rr until the die does not match, ro once, ra adds
+  expect_equal(mean_of("1d6rr1"), 4, tolerance = 0.01) # uniform on 2..6
+  expect_equal(mean_of("1d6rr<3"), 4.5, tolerance = 0.01) # uniform on 3..6
+  expect_equal(min(roll_dice_formula("1d6rr<3", times = 500)$result), 3)
+  expect_equal(mean_of("1d6ro1"), 3.5 + 1/6*(3.5-1), tolerance = 0.01)
+  expect_equal(mean_of("1d6ro<3"), 4/6*4.5 + 2/6*3.5 + 0, tolerance = 0.03) 
+  expect_equal(mean_of("1d6ra1"), 3.5 + 3.5/6, tolerance = 0.01)
+  # ra explodes at most one die
+  expect_equal(max(roll_dice_formula("5d6ra<7", times = 500)$result), 36)
+  
+  # Min / max
+  expect_equal(mean_of("1d6mi3"), (3+3+3+4+5+6)/6, tolerance = 0.01)
+  expect_equal(mean_of("1d6ma4"), (1+2+3+4+4+4)/6, tolerance = 0.01)
+  expect_equal(min(roll_dice_formula("3d6mi3", times = 200)$result), 9)
+  
+  # Modifiers are applied in the order they are written
+  expect_lte(max(roll_dice_formula("2d6e6kh1", times = 2000, seed = 1)$result), 6)
+  expect_equal(mean_of("1d6kh1e6"), 4.2, tolerance = 0.03)
+  expect_equal(max(roll_dice_formula("3d6mi4ma4", times = 200)$result), 12)
+  
+  # Consecutive identical modifiers are merged, like in d20: e5e6 is e(5,6)
+  expect_equal(mean_of("1d6e5e6"), 5.25, tolerance = 0.03)
+  expect_equal(mean_of("1d6e5e6"), mean_of("1d6e5>5"), tolerance = 0.03)
+  expect_error(roll_dice_formula("1d2e1e2"), "every side would explode")
+  
+  # Several selectors are a union
+  expect_equal(mean_of("1d6k1>5"), 7/6, tolerance = 0.03)
+  
+  # Percentile dice
+  expect_equal(mean_of("d%"), 50.5, tolerance = 0.02)
+  expect_equal(max(roll_dice_formula("1d%", times = 2000, seed = 1)$result), 100)
+  
+  # prob is used for every roll, also rerolls
+  expect_true(all(roll_dice_formula("1d3rr1", times = 50, prob = c(.5, .5, 0))$result == 2))
+  
+  # Limits like in d20: no endless loops
+  expect_error(roll_dice_formula("1d6rr>0"), "every side would be rerolled")
+  expect_error(roll_dice_formula("1000d6e6", times = 2), "Too many dice rolled")
+  expect_error(roll_dice_formula("2d6rr7"), "no side of the dice matches")
+})
+
+test_that("unsupported or invalid syntax is an error, not ignored", {
+  expect_error(roll_dice_formula("1d6x3"), "cannot parse 'x3'")
+  expect_error(roll_dice_formula("2d20h1"), "cannot parse 'h1'")
+  expect_error(roll_dice_formula("1d6rr"), "needs a selector")
+  expect_error(roll_dice_formula("2d6kh"), "needs a selector")
+  expect_error(roll_dice_formula("1d6mi>2"), "needs a plain number")
+  expect_error(roll_dice_formula("1d6+"), "cannot parse")
+  expect_error(roll_dice_formula("5+3"), "at least one d statement")
+  expect_error(roll_dice_formula("1d6 [fire]"), "cannot parse")
 })

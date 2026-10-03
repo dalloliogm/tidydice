@@ -104,12 +104,42 @@ parse_dice_formula <- function(dice_formula) {
 
 #' Simulating rolling a dice, using a formula
 #' 
+#' @details
+#' The syntax is based on [Avrae's d20 library](https://github.com/avrae/d20).
+#' Spaces and case are ignored. 
+#' 
+#' **Dice**: `NdS` rolls N dice with S sides (`d6` = `1d6`, `d%` = `d100`). 
+#' Dice can be combined with numbers using `+ - * / ^`, 
+#' parentheses and the usual precedence, e.g. `(2d6+3)*2` or `1d8+1d6+2`. 
+#' 
+#' **Modifiers** follow the dice and are applied in the order they are written.
+#' Each needs a selector:
+#' 
+#' | Modifier | Meaning |
+#' |:--|:--|
+#' | `k` | keep the dice matching the selector, drop the others |
+#' | `p` | drop the dice matching the selector |
+#' | `rr` | reroll dice matching the selector, until none match |
+#' | `ro` | reroll dice matching the selector once |
+#' | `ra` | roll one extra die (once) if a die matches the selector |
+#' | `e` | explode: roll an extra die for each die matching the selector, 
+#' and repeat for the new dice |
+#' | `mi` | minimum: dice below the number are raised to it |
+#' | `ma` | maximum: dice above the number are lowered to it |
+#' 
+#' **Selectors**: `N` (equal to N), `<N` (less than N), `>N` (greater than N), 
+#' `hN` (the N highest dice) and `lN` (the N lowest dice). Several selectors can 
+#' be combined (`k>3<2`), and so can consecutive identical modifiers 
+#' (`e5e6` is the same as `e5>5`). `mi` and `ma` only take a plain number.
+#' Only the dice that are not dropped can be selected.
+#' 
+#' Not supported (yet): comments, lists of numbers like `(1,2,3)kh1`, 
+#' functions, `//` and `%` operators. Invalid syntax is an error.
+#' A set can't contain more than 1000 dice.
+#' 
 #' @param data Data from a previous experiment
-#' @param dice_formula Dice formula (e.g. "1d6" = 1 dice with 6 sides).
-#'   Exploding dice use Avrae's syntax: `e` (explode on the highest side), 
-#'   `e6` (explode on a 6), `e>5` (on 5 or more), `e<2` (on 2 or less). 
-#'   A die that explodes is rolled again and the new die is added to the set 
-#'   (and can explode itself).
+#' @param dice_formula Dice formula (e.g. "1d6" = 1 dice with 6 sides). 
+#'   The syntax follows Avrae's dice bot (see Details).
 #' @param times How many times a dice is rolled (or how many dice are rolled at the same time)
 #' @param rounds Number of rounds 
 #' @param success Which result is a success (default = 6)
@@ -142,9 +172,20 @@ parse_dice_formula <- function(dice_formula) {
 #' # roll four 6-sided dice, keep highest 3 rolls, but explode on a 6
 #' roll_dice_formula(dice_formula = "4d6kh3e6")
 #' 
-#' # explode on 5 or more, or on 2 or less
-#' roll_dice_formula(dice_formula = "2d6e>5")
-#' roll_dice_formula(dice_formula = "2d6e<2")
+#' # explode on 5 or 6 (">" and "<" are strict, as in Avrae)
+#' roll_dice_formula(dice_formula = "2d6e>4")
+#' 
+#' # roll four 6-sided dice, drop the lowest, like for D&D abilities
+#' roll_dice_formula(dice_formula = "4d6pl1")
+#' 
+#' # reroll 1s until they are gone, reroll 2s once
+#' roll_dice_formula(dice_formula = "3d6rr1ro2")
+#' 
+#' # minimum of 2 on each dice
+#' roll_dice_formula(dice_formula = "4d6mi2")
+#' 
+#' # more than one group of dice
+#' roll_dice_formula(dice_formula = "1d8+1d6+2")
 #' 
 #' # roll one 20-sided dice, and add 4
 #' roll_dice_formula(dice_formula = "1d20+4")
@@ -190,65 +231,14 @@ roll_dice_formula <- function(data=NULL,
   experiment <- NULL
   nr <- NULL
   
-  # Parse Dice Type (1d6)
-  dicestr1 = str_match(string=dice_formula, pattern="(\\d*)?[dD](\\d*)")
-  assertthat::assert_that(is.character(dicestr1[1,1]), 
-                          msg = "dice_formula need to contain at least one d statement")
-  dice_count  = as.numeric(dicestr1[1,2])
-  if (is.na(dice_count)) {dice_count = 1}
-  dice_sides  = as.numeric(dicestr1[1,3])
-  assertthat::assert_that(dice_count >= 1, 
-                          msg = "cannot roll 0 dice!")
-  assertthat::assert_that(dice_sides >= 1, 
-                          msg = "cannot roll a d0!")
+  # Parse the formula (see dice-eval.R), then roll it
+  dice_expression <- parse_dice_expression(dice_formula)
   
-  # Parse Exploding Dice (Avrae syntax): e, e6, e>5, e<2
-  dice_explode = parse_explode(dice_formula, dice_sides)
-  
-  # Parse Keep Higher/Lower
-  dice_khl = str_match(string=dice_formula, pattern="[kK]([HhlL])(\\d*)")
-  dice_khl_sign = case_when(
-    is.na(dice_khl[1,2]) ~ T,
-    dice_khl[1,2] %in% c("h", "H") ~ T,
-    dice_khl[1,2] %in% c("l", "L") ~ F
+  result_df <- tibble::tibble(
+    round = as.integer(rep(1:rounds, each = times)),
+    nr    = as.integer(rep(1:times, times = rounds)),
+    result = eval_dice_expression(dice_expression, n = rounds * times, prob = prob)
   )
-  dice_khl_n = as.numeric(ifelse(is.na(dice_khl[1,3]), dice_count, dice_khl[1,3]))
-  assertthat::assert_that(dice_khl_n <= dice_count, 
-                          msg = "invalid kh/kl formula, can't keep more dice than rolled")
-  assertthat::assert_that(dice_khl_n > 0, 
-                          msg = "invalid kh/kl formula, can't keep less than 1 die")
-
-  # Parse [+-*/]
-  dice_op = str_match(string=dice_formula, pattern="\\s*([+-/*^][*]*)\\s*(\\d*)")
-  dice_op_sign = dice_op[1,2]
-  dice_op_n = as.numeric(dice_op[1,3])
-
-    n_rolls <- rounds * times
-    result_df <- tibble::tibble(
-      round = as.integer(rep(1:rounds, each = times)),
-      nr    = as.integer(rep(1:times, times = rounds)),
-      result = roll_dice_sets(
-        n_sets = n_rolls,
-        dice_count = dice_count,
-        dice_sides = dice_sides,
-        prob = prob,
-        explode_on = dice_explode,
-        keep_n = if (is.na(dice_khl[1,3]) & is.na(dice_khl[1,2])) Inf else dice_khl_n,
-        keep_highest = dice_khl_sign
-      )
-    )
-    # arithmetic operations
-    result_df = result_df %>%
-      mutate(
-        result = case_when(
-          dice_op_sign == "+" ~ result + dice_op_n,
-          dice_op_sign == "-" ~ result - dice_op_n,
-          dice_op_sign == "*" ~ result * dice_op_n,
-          dice_op_sign == "/" ~ result / dice_op_n,
-          dice_op_sign %in% c("^", "**") ~ result ** dice_op_n,
-          T ~ as.numeric(result),
-        )
-      )
       
   # Compute success
   result_df = result_df %>%
@@ -302,90 +292,4 @@ roll_dice_formula <- function(data=NULL,
   # return data frame
   result_df
   
-}
-
-#' Helper function to parse the exploding dice modifier of a dice formula
-#'
-#' Supports the syntax of Avrae's d20 library: `e` (explode on the highest
-#' side), `e6` (explode on a 6), `e>5` (explode on 5 or more) and `e<2`
-#' (explode on 2 or less).
-#'
-#' @param dice_formula A string containing a dice formula, e.g. 1d6e>5
-#' @param dice_sides Number of sides of the dice
-#' @return Integer vector of the sides that make a die explode (empty if the
-#'   formula has no exploding modifier)
-#' @import stringr
-
-parse_explode <- function(dice_formula, dice_sides) {
-
-  m <- str_match(string = dice_formula, pattern = "[eE]([<>]?)(\\d*)")
-  if (is.na(m[1, 1])) {
-    return(integer(0))
-  }
-
-  comparator <- m[1, 2]
-  value <- if (m[1, 3] == "") dice_sides else as.numeric(m[1, 3])
-
-  assertthat::assert_that(value >= 1 & value <= dice_sides, 
-                          msg = "invalid exploding dice specification")
-  
-  sides <- seq_len(dice_sides)
-  explode_on <- switch(comparator,
-                       ">" = sides[sides >= value],
-                       "<" = sides[sides <= value],
-                       value)
-  
-  assertthat::assert_that(length(explode_on) < dice_sides,
-                          msg = "invalid exploding dice specification, every side would explode")
-  explode_on
-}
-
-#' Helper function to roll sets of dice, with exploding dice and keep high/low
-#'
-#' Every die is rolled individually. A die that lands on one of the 
-#' `explode_on` sides adds another die to the set, which can explode again.
-#' The kept dice are chosen after all explosions, as in Avrae's d20 library.
-#'
-#' @param n_sets Number of independent sets of dice to roll
-#' @param dice_count Number of dice in each set
-#' @param dice_sides Number of sides of each die
-#' @param prob Vector of probabilities for each side of the dice (or NULL)
-#' @param explode_on Sides that make a die explode
-#' @param keep_n Number of dice to keep (Inf keeps all, including exploded dice)
-#' @param keep_highest Keep the highest (TRUE) or the lowest (FALSE) dice
-#' @return Numeric vector with the sum of the kept dice of each set
-
-roll_dice_sets <- function(n_sets, dice_count, dice_sides, prob = NULL, 
-                           explode_on = integer(0), 
-                           keep_n = Inf, keep_highest = TRUE) {
-  
-  roll <- function(n) {
-    sample(x = seq_len(dice_sides), size = n, replace = TRUE, prob = prob)
-  }
-  
-  sets <- split(roll(n_sets * dice_count), rep(seq_len(n_sets), each = dice_count))
-  
-  if (length(explode_on) > 0) {
-    sets <- lapply(sets, function(dice) {
-      pending <- dice
-      while (length(pending) > 0) {
-        pending <- roll(sum(pending %in% explode_on))
-        dice <- c(dice, pending)
-      }
-      dice
-    })
-  }
-  
-  vapply(sets, top_n_dice, numeric(1), n = keep_n, dec = keep_highest, 
-         USE.NAMES = FALSE)
-}
-
-#' Helper function to get sum of top n dice 
-#'
-#' @param x Vector of dice-values
-#' @param n Number of dice
-#' @param dec Decreasing
-
-top_n_dice = function(x, n, dec=F) {
-  sum(utils::head(x[order(x, decreasing = dec)], n), na.rm=T)
 }

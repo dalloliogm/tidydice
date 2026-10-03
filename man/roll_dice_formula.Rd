@@ -20,10 +20,7 @@ roll_dice_formula(
 \item{data}{Data from a previous experiment}
 
 \item{dice_formula}{Dice formula (e.g. "1d6" = 1 dice with 6 sides).
-Exploding dice use Avrae's syntax: \code{e} (explode on the highest side),
-\code{e6} (explode on a 6), \code{e>5} (on 5 or more), \code{e<2} (on 2 or less).
-A die that explodes is rolled again and the new die is added to the set
-(and can explode itself).}
+The syntax follows Avrae's dice bot (see Details).}
 
 \item{times}{How many times a dice is rolled (or how many dice are rolled at the same time)}
 
@@ -44,6 +41,39 @@ Result of experiment as a tibble
 }
 \description{
 Simulating rolling a dice, using a formula
+}
+\details{
+The syntax is based on \href{https://github.com/avrae/d20}{Avrae's d20 library}.
+Spaces and case are ignored.
+
+\strong{Dice}: \code{NdS} rolls N dice with S sides (\code{d6} = \verb{1d6}, \verb{d\%} = \code{d100}).
+Dice can be combined with numbers using \verb{+ - * / ^},
+parentheses and the usual precedence, e.g. \verb{(2d6+3)*2} or \verb{1d8+1d6+2}.
+
+\strong{Modifiers} follow the dice and are applied in the order they are written.
+Each needs a selector:\tabular{ll}{
+   Modifier \tab Meaning \cr
+   \code{k} \tab keep the dice matching the selector, drop the others \cr
+   \code{p} \tab drop the dice matching the selector \cr
+   \code{rr} \tab reroll dice matching the selector, until none match \cr
+   \code{ro} \tab reroll dice matching the selector once \cr
+   \code{ra} \tab roll one extra die (once) if a die matches the selector \cr
+   \code{e} \tab explode: roll an extra die for each die matching the selector, \cr
+   and repeat for the new dice \tab  \cr
+   \code{mi} \tab minimum: dice below the number are raised to it \cr
+   \code{ma} \tab maximum: dice above the number are lowered to it \cr
+}
+
+
+\strong{Selectors}: \code{N} (equal to N), \verb{<N} (less than N), \verb{>N} (greater than N),
+\code{hN} (the N highest dice) and \code{lN} (the N lowest dice). Several selectors can
+be combined (\verb{k>3<2}), and so can consecutive identical modifiers
+(\code{e5e6} is the same as \code{e5>5}). \code{mi} and \code{ma} only take a plain number.
+Only the dice that are not dropped can be selected.
+
+Not supported (yet): comments, lists of numbers like \verb{(1,2,3)kh1},
+functions, \verb{//} and \verb{\%} operators. Invalid syntax is an error.
+A set can't contain more than 1000 dice.
 }
 \examples{
 # roll one 6-sided dice
@@ -67,9 +97,20 @@ roll_dice_formula(dice_formula = "3d6kl2")
 # roll four 6-sided dice, keep highest 3 rolls, but explode on a 6
 roll_dice_formula(dice_formula = "4d6kh3e6")
 
-# explode on 5 or more, or on 2 or less
-roll_dice_formula(dice_formula = "2d6e>5")
-roll_dice_formula(dice_formula = "2d6e<2")
+# explode on 5 or 6 (">" and "<" are strict, as in Avrae)
+roll_dice_formula(dice_formula = "2d6e>4")
+
+# roll four 6-sided dice, drop the lowest, like for D&D abilities
+roll_dice_formula(dice_formula = "4d6pl1")
+
+# reroll 1s until they are gone, reroll 2s once
+roll_dice_formula(dice_formula = "3d6rr1ro2")
+
+# minimum of 2 on each dice
+roll_dice_formula(dice_formula = "4d6mi2")
+
+# more than one group of dice
+roll_dice_formula(dice_formula = "1d8+1d6+2")
 
 # roll one 20-sided dice, and add 4
 roll_dice_formula(dice_formula = "1d20+4")
