@@ -1,5 +1,9 @@
 ## tidydice (development version)
 
+* binom_dice() and binom_coin() have a `prob` parameter for unfair dice and coins
+  (like roll_dice() and flip_coin()), so plot_binom() can show them. Sides that 
+  are listed twice in `success`, or that don't exist (0, 7 on a d6), are no longer 
+  counted as a success.
 * plot_dice(): results that are not a dice face (a sum like 13, 0 or less, a 
   decimal) are drawn as a number on a blank dice. Before, they gave a ggplot 
   warning, and a decimal like 2.5 was drawn as the face 2.
