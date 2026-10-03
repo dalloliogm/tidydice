@@ -143,9 +143,11 @@ test_that("exploding dice", {
   # exploding dice should always be lower or equal to n. sides
   expect_error(roll_dice_formula("1d4e6"))
 
-  # 1d2e1 not implemented because of sample() syntax, 1d1e1 not implemented
-  expect_error(roll_dice_formula("1d2e1"), "1d1e1 and 1d2e1 not implemented")
-  expect_error(roll_dice_formula("1d1e1"), "1d1e1 and 1d2e1 not implemented")
+  # 1d2e1 is valid (the die stops exploding on a 2), 1d1e1 would explode forever
+  expect_equal(mean(roll_dice_formula("1d2e1", times=20000, seed=1)$result), 3, tolerance=0.03)
+  expect_error(roll_dice_formula("1d1e1"), "every side would explode")
+  expect_error(roll_dice_formula("1d6e>1"), "every side would explode")
+  expect_error(roll_dice_formula("1d6e0"), "invalid exploding dice specification")
    
   # Expected values over many rolls
   expect_equal(
@@ -162,6 +164,36 @@ test_that("exploding dice", {
             mean(roll_dice_formula("1d6", times=2000)$result),
   )
   
+  # Bare "e" explodes on the highest side
+  expect_equal(roll_dice_formula("1d6e", times=50, seed=1)$result,
+               roll_dice_formula("1d6e6", times=50, seed=1)$result)
+  
+  # Exact expected values: E = 21/5 when exactly one side explodes
+  expect_equal(mean(roll_dice_formula("1d6e6", times=20000, seed=1)$result), 
+               4.2, tolerance=0.03)
+  expect_equal(mean(roll_dice_formula("1d6e2", times=20000, seed=1)$result), 
+               4.2, tolerance=0.03)
+  
+  # Comparators: e>5 explodes on 5 and 6, e<2 explodes on 1 and 2
+  expect_equal(mean(roll_dice_formula("1d6e>5", times=20000, seed=1)$result),
+               5.25, tolerance=0.03)
+  expect_equal(mean(roll_dice_formula("1d6e<2", times=20000, seed=1)$result),
+               21/4, tolerance=0.03)
+  
+  # Explosions are rolled per die: 10d6e6 mean is 10 * 4.2
+  expect_equal(mean(roll_dice_formula("10d6e6", times=5000, seed=1)$result),
+               42, tolerance=0.02)
+  
+  # Exploded dice can explode again
+  expect_true(any(roll_dice_formula("1d2e2", times=2000, seed=1)$result > 3))
+  
+  # Exploded dice are added to the set, so they compete for kh/kl as separate dice
+  expect_gt(mean(roll_dice_formula("2d6e6kh2", times=5000, seed=1)$result),
+            mean(roll_dice_formula("2d6kh2", times=5000, seed=1)$result))
+  expect_lte(max(roll_dice_formula("2d6e6kh1", times=2000, seed=1)$result), 6)
+  
+  # prob is honoured by the dice that explode
+  expect_true(all(roll_dice_formula("1d3e3", times=50, prob=c(1,0,0))$result == 1))
   }
 )
 
@@ -196,8 +228,8 @@ test_that("Keep High/Low dice", {
             )
   
   # Exploding + kh/kl
-  expect_equal(mean(roll_dice_formula("3d6e6kh2", times=2000)$result), 10, tolerance=0.2)
-  expect_equal(mean(roll_dice_formula("3d6e6kh2", times=2000)$result), 9, tolerance=0.2)
+  expect_gt(mean(roll_dice_formula("3d6e6kh2", times=5000, seed=1)$result),
+            mean(roll_dice_formula("3d6kh2", times=5000, seed=1)$result))
   
     }  
 )

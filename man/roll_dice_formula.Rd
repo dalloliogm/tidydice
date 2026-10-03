@@ -19,7 +19,11 @@ roll_dice_formula(
 \arguments{
 \item{data}{Data from a previous experiment}
 
-\item{dice_formula}{Dice formula (e.g. "1d6" = 1 dice with 6 sides)}
+\item{dice_formula}{Dice formula (e.g. "1d6" = 1 dice with 6 sides).
+Exploding dice use Avrae's syntax: \code{e} (explode on the highest side),
+\code{e6} (explode on a 6), \code{e>5} (on 5 or more), \code{e<2} (on 2 or less).
+A die that explodes is rolled again and the new die is added to the set
+(and can explode itself).}
 
 \item{times}{How many times a dice is rolled (or how many dice are rolled at the same time)}
 
@@ -62,6 +66,10 @@ roll_dice_formula(dice_formula = "3d6kl2")
 
 # roll four 6-sided dice, keep highest 3 rolls, but explode on a 6
 roll_dice_formula(dice_formula = "4d6kh3e6")
+
+# explode on 5 or more, or on 2 or less
+roll_dice_formula(dice_formula = "2d6e>5")
+roll_dice_formula(dice_formula = "2d6e<2")
 
 # roll one 20-sided dice, and add 4
 roll_dice_formula(dice_formula = "1d20+4")

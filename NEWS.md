@@ -1,3 +1,13 @@
+## tidydice (development version)
+
+* roll_dice_formula(): exploding dice are now simulated die by die, replacing
+  the geometric-distribution approximation. This fixes wrong results with
+  several dice, `prob` and `kh`/`kl`.
+* roll_dice_formula(): add `e>N` and `e<N` (and bare `e`) exploding syntax,
+  as in Avrae.
+* roll_dice_formula(): `1d2e1` is now valid; a formula where every side 
+  explodes (e.g. `1d6e>1`) raises an error.
+
 ## tidydice 1.0.0 (2022-02-01)
 
 * add roll_dice_formula()

@@ -142,7 +142,9 @@ roll_dice_formula(
 - ```1d8``` = roll one 8-sided dice
 - ```1d12``` = roll one 12-sided dice
 - ```2d6``` = roll two 6-sided dice
-- ```1d6e6``` = roll one 6-sided dice, explode dice on a 6
+- ```1d6e6``` = roll one 6-sided dice, explode dice on a 6 (```e``` alone = highest side)
+- ```2d6e>5``` = roll two 6-sided dice, explode dice on a 5 or more
+- ```2d6e<2``` = roll two 6-sided dice, explode dice on a 2 or less
 - ```3d6kh2``` = roll three 6-sided dice, keep highest 2 rolls
 - ```3d6kl2``` = roll three 6-sided dice, keep lowest 2 rolls
 - ```4d6kh3e6``` = roll four 6-sided dice, keep highest 3 rolls, but explode on a 6
