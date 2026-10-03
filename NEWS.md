@@ -10,6 +10,10 @@
     * selectors `N`, `<N`, `>N`, `hN`, `lN`; `<` and `>` are strict
     * invalid or unsupported syntax is now an error instead of being silently 
       ignored (e.g. `2d20h1` used to roll a plain `2d20`)
+* parse_dice_formula() uses the same parser. It returns the same columns as 
+  before, but now handles every syntax of roll_dice_formula() (`d%`, several
+  selectors, `^`, parentheses) and fails on invalid syntax. A formula can no
+  longer start with `*` or `/`. tidyr and stringr are no longer needed.
 * Exploding dice are simulated die by die, replacing the geometric-distribution 
   approximation. This fixes wrong results with several dice, `prob` and
   `kh`/`kl`. Exploded dice are part of the set that `k` and `p` work on.

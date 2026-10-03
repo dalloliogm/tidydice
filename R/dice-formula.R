@@ -1,101 +1,87 @@
-#' Helper function to parse a dice formula 
-#'
-#' @param dice_formula_part A split dice formula, e.g. 1d6e2. For more complex formula, e.g. 1d6e2+3d4, see parse_dice_formula
-#' @import dplyr
-#' @import stringr
-
-parse_dice_formula_part <- function(dice_formula_part){
-
-  # define variables to pass CRAN checks
-  value <- NULL
-
-  dice_base = str_match_all(
-    string=dice_formula_part,
-    pattern="^([+-/*]?)(\\d*)?([dD]*)(\\d*)") 
-  
-  dice_base <- dice_base[[1]]
-  
-  dice_base <- dice_base %>% 
-    tibble::as_tibble(.name_repair="minimal") %>%
-    purrr::set_names(c("raw_set", "sign", "operator", "selector", "value")) %>%
-    mutate(value=as.numeric(value)) %>%
-    select(-sign) %>%
-    mutate(
-      value = case_when(
-        is.na(value) ~ as.numeric(operator),
-        T ~ value),
-      operator = case_when(
-        operator == "" ~ "1",
-        T ~ operator
-      )
-    )
-
-  dice_filters = str_match_all(
-    string=dice_formula_part, 
-    pattern="([kKeEpP]|rr|ro|ra|mi|ma)([HhlL><]*)(\\d*)") 
-  
-  dice_filters <- dice_filters[[1]]
-  
-  dice_filters <- dice_filters %>% 
-    tibble::as_tibble(.name_repair="minimal") %>%
-    purrr::set_names(c("raw_set", "operator", "selector", "value")) %>%
-    mutate(value=as.numeric(value))
-  
-  bind_rows(
-    dice_base,
-    dice_filters
-  ) 
-}
-
 #' Given a dice formula string, split it and return a dataframe with the list 
-#' of functions.
+#' of its parts.
 #'
-#' This is the main function to parse a string containing complex formula 
-#' specifications for rolling dice.
+#' This parses a dice formula with the same parser as [roll_dice_formula()], 
+#' see there for the syntax. It returns a tibble with one or more rows for each
+#' group (a number, or dice with their modifiers) of the formula:
+#' 
+#' - `subgroup_id`: position of the group in the formula
+#' - `subgroup_formula`: the group, with the operator before it (`+` for the first one)
+#' - `subgroup_sign`: the operator before the group (`+ - * / ^ **`)
+#' - `raw_set`: the text of one part of the group, e.g. `4d6`, `e6` or `kh3`
+#' - `operator`, `selector`, `value`: the part, split. For the dice itself, 
+#'   `operator` is the number of dice, `selector` is `d` and `value` the number
+#'   of sides. For a modifier, `operator` is the modifier (e.g. `k`), 
+#'   `selector` is `h`, `l`, `<`, `>` or empty and `value` its number. 
+#'   A modifier with several selectors, or repeated modifiers, 
+#'   get one row for each selector (`e5e6`, `k>3<2`).
+#'   For a plain number, `operator` is the number and `value` too.
+#' 
+#' The groups are listed from left to right, without the precedence of 
+#' the operators and the parentheses: `(1d6+2)*3` returns the groups `1d6`, 
+#' `+2` and `*3`. 
 #' 
 #' The input can be a string containing specifications for multiple dice, e.g.:
 #' - 1d6e6          -> roll 1 six-sided dice, explode on 6
 #' - 1d6e6+2d4-1d10 -> Roll 1 six-sided dice, explode on 6, plus two 4-sided 
 #'                    dice, subract one 10-sided dice
 #' 
-#' 
 #' This is inspired by Avrae's bot syntax for rolling dice. See https://github.com/avrae/d20
 #' 
-#' @param dice_formula A string containing a dice formula, e.g. 1d6e2+1d4
-#' @importFrom tidyr unnest
-#' @importFrom tibble tibble rownames_to_column
-#' @import stringr
+#' @param dice_formula A string containing a dice formula, e.g. 1d6e6+1d4
+#' @return A tibble
+#' @importFrom tibble tibble
 #' @export
+#' @examples
+#' parse_dice_formula("4d6e6kh3+2")
+#' parse_dice_formula("1d8+1d6-1")
 
 parse_dice_formula <- function(dice_formula) {
 
-  # define variables to pass CRAN checks
-  subgroup_formula <- NULL
-  subgroup_sign <- NULL
-  subgroup_id <- NULL
-  parts <- NULL
+  assertthat::assert_that(is.character(dice_formula) && length(dice_formula) == 1, 
+                          msg = "dice_formula must be a single character string")
+  tree <- parse_dice_expression(dice_formula, require_dice = FALSE, validate = FALSE)
   
-  # To simplify Regex parsing, Remove whitespaces and add a default "+"
-  dice_formula = str_replace_all(dice_formula, "\\s", "")
-  dice_formula = 
-    ifelse(is.na(str_match(dice_formula, "^[+-/*]")[1]), 
-                        paste0("+", dice_formula),
-                        dice_formula)
+  groups <- flatten_dice_expression(tree)
   
-  # Split dice_formula, then parse each substring
-  tibble::tibble(subgroup_formula = str_split(dice_formula, 
-        "([+-/*])", simplify=T)[-1],
-        subgroup_sign = str_extract_all(dice_formula, "([+-/*])")[[1]]) %>%
-      unnest(c(subgroup_formula, subgroup_sign)) %>%
-      tibble::rownames_to_column("subgroup_id") %>%
-      rowwise %>% 
-      mutate(
-         parts = list(parse_dice_formula_part(subgroup_formula))) %>% 
-      mutate(
-        subgroup_id = as.integer(subgroup_id), 
-        subgroup_formula = paste0(subgroup_sign, subgroup_formula)) %>%
-      unnest(parts)
+  parts <- lapply(seq_along(groups), function(i) {
+    group <- groups[[i]]
+    node <- group$node
+    
+    if (node$type == "num") {
+      rows <- tibble::tibble(raw_set = node$text, operator = node$text, 
+                             selector = "", value = node$value)
+    } else {
+      rows <- tibble::tibble(
+        raw_set = c(node$base_text, 
+                    vapply(node$raw_mods, function(m) paste0(m$op, m$cat, m$num), 
+                           character(1))),
+        operator = c(as.character(node$count), 
+                     vapply(node$raw_mods, function(m) m$op, character(1))),
+        selector = c("d", vapply(node$raw_mods, function(m) m$cat, character(1))),
+        value = c(node$sides, vapply(node$raw_mods, function(m) m$num, numeric(1))))
+    }
+    
+    tibble::tibble(subgroup_id = i, 
+                   subgroup_formula = paste0(group$sign, node$text),
+                   subgroup_sign = group$sign) %>%
+      dplyr::bind_cols(rows)
+  })
+  
+  dplyr::bind_rows(parts)
+}
 
+# Flatten the tree of an expression into a list of groups (numbers and dice), 
+# each with the operator written before it
+flatten_dice_expression <- function(node, sign = "+") {
+  switch(node$type,
+    neg = flatten_dice_expression(
+      node$x, 
+      sign = switch(sign, "+" = "-", "-" = "+", paste0(sign, "-"))),
+    binop = c(flatten_dice_expression(node$lhs, sign), 
+              flatten_dice_expression(node$rhs, node$op_text)),
+    list(list(sign = sign, node = node))
+  )
 }
 
 # roll_dice_part <- function(current_set = c(), specs=c()){
@@ -148,7 +134,6 @@ parse_dice_formula <- function(dice_formula) {
 #' @param seed Seed to produce reproducible results
 #' @param label Custom text to distinguish an experiment, can be used for plotting etc.
 #' @return Result of experiment as a tibble
-#' @import stringr
 #' @export
 #' @examples
 #' # roll one 6-sided dice

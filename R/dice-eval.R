@@ -25,12 +25,17 @@ MAX_DICE_ROLLED <- 1000
 #' Parse a dice expression
 #'
 #' @param dice_formula A string containing a dice formula, e.g. 4d6e6kh3+2
-#' @return A tree (nested lists) describing the expression
+#' @param require_dice If TRUE, the formula must contain at least one dice
+#' @param validate If TRUE, check that the modifiers can be rolled (e.g. no 
+#'   reroll of a number that is not on the dice). Otherwise only the syntax is checked.
+#' @return A tree (nested lists) describing the expression. Number and dice 
+#'   nodes also keep their source text, for parse_dice_formula()
 
-parse_dice_expression <- function(dice_formula) {
+parse_dice_expression <- function(dice_formula, require_dice = TRUE, validate = TRUE) {
 
   st <- new.env()
-  st$s <- tolower(gsub("\\s", "", dice_formula))
+  st$orig <- gsub("\\s", "", dice_formula) # same length as st$s: keeps the case
+  st$s <- tolower(st$orig)
   st$pos <- 1L
   st$n_dice <- 0L
 
@@ -52,7 +57,7 @@ parse_dice_expression <- function(dice_formula) {
   parse_expr <- function() {
     node <- parse_term()
     while (!is.null(op <- take("[+-]"))) {
-      node <- list(type = "binop", op = op[1], lhs = node, rhs = parse_term())
+      node <- list(type = "binop", op = op[1], op_text = op[1], lhs = node, rhs = parse_term())
     }
     node
   }
@@ -60,15 +65,16 @@ parse_dice_expression <- function(dice_formula) {
   parse_term <- function() {
     node <- parse_power()
     while (!is.null(op <- take("\\*(?!\\*)|/"))) {
-      node <- list(type = "binop", op = op[1], lhs = node, rhs = parse_power())
+      node <- list(type = "binop", op = op[1], op_text = op[1], lhs = node, rhs = parse_power())
     }
     node
   }
 
   parse_power <- function() {
     node <- parse_unary()
-    if (!is.null(take("\\^|\\*\\*"))) {
-      node <- list(type = "binop", op = "^", lhs = node, rhs = parse_power())
+    if (!is.null(op <- take("\\^|\\*\\*"))) {
+      node <- list(type = "binop", op = "^", op_text = op[1], lhs = node, 
+                   rhs = parse_power())
     }
     node
   }
@@ -85,6 +91,8 @@ parse_dice_expression <- function(dice_formula) {
   }
 
   parse_atom <- function() {
+    start <- st$pos
+    source_text <- function() substring(st$orig, start, st$pos - 1)
     if (!is.null(take("\\("))) {
       node <- parse_expr()
       if (is.null(take("\\)"))) {
@@ -93,10 +101,12 @@ parse_dice_expression <- function(dice_formula) {
       return(node)
     }
     if (!is.null(m <- take("(\\d*)d(\\d+|%)"))) {
-      return(parse_dice(m[2], m[3]))
+      node <- parse_dice(m[2], m[3])
+      node$base_text <- source_text() # before the modifiers
+      return(parse_dice_modifiers(node, start))
     }
     if (!is.null(m <- take("\\d+(?:\\.\\d+)?"))) {
-      return(list(type = "num", value = as.numeric(m[1])))
+      return(list(type = "num", value = as.numeric(m[1]), text = source_text()))
     }
     fail(paste0("invalid dice_formula, cannot parse '", substring(st$s, st$pos), "'"))
   }
@@ -108,12 +118,23 @@ parse_dice_expression <- function(dice_formula) {
     assertthat::assert_that(sides >= 1, msg = "cannot roll a d0!")
     assertthat::assert_that(count <= MAX_DICE_ROLLED, msg = "Too many dice rolled.")
     st$n_dice <- st$n_dice + 1L
+    list(type = "dice", count = count, sides = sides, mods = list(), raw_mods = list())
+  }
 
+  # Add the modifiers that follow the dice
+  parse_dice_modifiers <- function(node, start) {
+    count <- node$count
+    sides <- node$sides
+    
     # Like d20, consecutive identical modifiers are merged: e5e6 is e(5,6)
     mods <- list()
+    raw_mods <- list() # as written, for parse_dice_formula()
     while (!is.null(m <- take("rr|ro|ra|mi|ma|k|p|e"))) {
       op <- m[1]
       sels <- parse_selectors(op)
+      raw_mods <- c(raw_mods, lapply(sels, function(sel) {
+        list(op = op, cat = sel$cat, num = sel$num)
+      }))
       last <- length(mods)
       if (last > 0 && mods[[last]]$op == op && !op %in% c("mi", "ma")) {
         mods[[last]]$sels <- c(mods[[last]]$sels, sels)
@@ -124,12 +145,15 @@ parse_dice_expression <- function(dice_formula) {
     
     can_grow <- FALSE # can the set contain more dice than `count`?
     for (mod in mods) {
-      validate_modifier(mod, count, sides, can_grow)
+      if (validate) validate_modifier(mod, count, sides, can_grow)
       if (mod$op %in% c("e", "ra")) {
         can_grow <- TRUE
       }
     }
-    list(type = "dice", count = count, sides = sides, mods = mods)
+    node$mods <- mods
+    node$raw_mods <- raw_mods
+    node$text <- substring(st$orig, start, st$pos - 1)
+    node
   }
 
   parse_selectors <- function(op) {
@@ -148,8 +172,10 @@ parse_dice_expression <- function(dice_formula) {
   if (st$pos <= nchar(st$s)) {
     fail(paste0("invalid dice_formula, cannot parse '", substring(st$s, st$pos), "'"))
   }
-  assertthat::assert_that(st$n_dice > 0,
-                          msg = "dice_formula need to contain at least one d statement")
+  if (require_dice) {
+    assertthat::assert_that(st$n_dice > 0,
+                            msg = "dice_formula need to contain at least one d statement")
+  }
   node
 }
 

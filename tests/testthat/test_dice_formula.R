@@ -21,14 +21,17 @@ test_that("parse_dice_formula works correctly", {
   expect_equal(formula_df, expected_output)
   
   # one group, two operations
-  dice_formula = "*1d5rr>2"
+  dice_formula = "1d5rr>2"
   formula_df = parse_dice_formula(dice_formula)
   expected_output = tibble::tribble(
     ~subgroup_id, ~subgroup_formula, ~subgroup_sign, ~raw_set, ~operator, ~selector, ~value,
-    1, "*1d5rr>2", "*", "1d5", "1", "d", 5,
-    1, "*1d5rr>2", "*", "rr>2", "rr", ">", 2
+    1, "+1d5rr>2", "+", "1d5", "1", "d", 5,
+    1, "+1d5rr>2", "+", "rr>2", "rr", ">", 2
   )
   expect_equal(formula_df, expected_output)
+  
+  # a formula cannot start with * or /
+  expect_error(parse_dice_formula("*1d5"), "cannot parse '\\*1d5'")
   
   # one group, multiple operations
   dice_formula = "1d5e2e3rr<2";   
@@ -82,6 +85,37 @@ test_that("parse_dice_formula works correctly", {
   dice_formula = "d 4- 1d5 e2+ 1d2 rr3   - d2kl 2 p<4 * 3d2+9 / 9+ d 9 8"
   formula_df = parse_dice_formula(dice_formula)
   expect_equal(formula_df, expected_output)
+  
+  # Same parser as roll_dice_formula(): d%, several selectors, ^ and **, case
+  expect_equal(
+    parse_dice_formula("2D%k>3<2^2**3"),
+    tibble::tribble(
+      ~subgroup_id, ~subgroup_formula, ~subgroup_sign, ~raw_set, ~operator, ~selector, ~value,
+      1, "+2D%k>3<2", "+", "2D%",  "2", "d", 100,
+      1, "+2D%k>3<2", "+", "k>3",  "k", ">", 3,
+      1, "+2D%k>3<2", "+", "k<2",  "k", "<", 2,
+      2, "^2",        "^", "2",    "2", "",  2,
+      3, "**3",       "**", "3",   "3", "",  3
+    ))
+  
+  # Leading minus, parentheses: groups are listed from left to right
+  expect_equal(
+    parse_dice_formula("-(1d6+2)*3"),
+    tibble::tribble(
+      ~subgroup_id, ~subgroup_formula, ~subgroup_sign, ~raw_set, ~operator, ~selector, ~value,
+      1, "-1d6", "-", "1d6", "1", "d", 6,
+      2, "+2",   "+", "2",   "2", "",  2,
+      3, "*3",   "*", "3",   "3", "",  3
+    ))
+  
+  # Only the syntax is checked, not whether the formula can be rolled
+  expect_equal(nrow(parse_dice_formula("1d2rr3")), 2)
+  
+  # Invalid syntax is an error, also here
+  expect_error(parse_dice_formula("1d6x3"), "cannot parse 'x3'")
+  expect_error(parse_dice_formula("1d6e"), "needs a selector")
+  expect_error(parse_dice_formula("(1d6"), "missing closing parenthesis")
+  expect_error(parse_dice_formula(c("1d6", "1d4")), "single character string")
   
 })
 
