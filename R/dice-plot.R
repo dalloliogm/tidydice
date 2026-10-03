@@ -89,8 +89,9 @@ plot_single_dice <- function(ggplot = NULL, result = 6, x = 0, y = 0, width = 0.
                       c(1,0,1,0,1,0,1,0,1),   # result 5
                       c(1,1,1,0,0,0,1,1,1))   # result 6
   
-  # plot result 1..6 or empty dice
-  if (result >= 1 & result <= 6) {
+  # plot result 1..6 as dots, any other result (e.g. a sum, or a decimal) as number
+  is_face <- is.finite(result) && result == round(result) && result >= 1 && result <= 6
+  if (is_face) {
     
     points <- data.frame(x = points_x[points_dots[[result]] == 1],
                          y = points_y[points_dots[[result]] == 1])
@@ -130,7 +131,7 @@ plot_single_dice <- function(ggplot = NULL, result = 6, x = 0, y = 0, width = 0.
   } #missing ggplot
   
   # plot dots
-  for (i in 1:nrow(points))  {
+  for (i in seq_len(nrow(points)))  {
     x <- points$x[i]
     y <- points$y[i]
     if (detailed)  {
@@ -146,6 +147,14 @@ plot_single_dice <- function(ggplot = NULL, result = 6, x = 0, y = 0, width = 0.
     #p <- p + geom_path(data = dice_dot, aes(x, y), color = point_color, lineend = line_end)
   } #for
     
+  # results that are not a dice face: write the number on the dice
+  if (!is_face) {
+    label <- NULL # to pass CRAN checks
+    p <- p + geom_text(data = data.frame(x = x, y = y, label = format(round(result, 2))),
+                       aes(x, y, label = label), color = point_color, 
+                       size = if (detailed) 4 else 3.5)
+  }
+  
   # fix coordinates
   if (missing(ggplot))  { 
     p <- p +

@@ -1,5 +1,8 @@
 ## tidydice (development version)
 
+* plot_dice(): results that are not a dice face (a sum like 13, 0 or less, a 
+  decimal) are drawn as a number on a blank dice. Before, they gave a ggplot 
+  warning, and a decimal like 2.5 was drawn as the face 2.
 * roll_dice_formula() has a new parser and evaluator that follows the syntax of
   Avrae's d20 library:
     * several dice groups and numbers now work (`1d8+1d6+2`); before, only the
