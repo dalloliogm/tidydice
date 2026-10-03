@@ -243,7 +243,7 @@ roll_dice_formula <- function(data=NULL,
            label=label) %>%
     select(experiment_id, dice_formula, label, round, nr, result, success) 
   
-  if (missing(data))  {
+  if (!is.data.frame(data))  {
     
     # result of roll_dice (first experiment)
     result_df <- result_df %>% 
