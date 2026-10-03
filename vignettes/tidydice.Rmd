@@ -483,7 +483,8 @@ different sides, use a list with the probabilities of each group of dice
 roll_dice_formula(
   dice_formula = "3d6",
   prob = c(1, 1, 1, 1, 1, 5), # the 6 is 5 times more likely
-  times = 1000
+  times = 1000,
+  seed = 123
 ) %>%
   dplyr::count(result)  %>%
   dplyr::slice_max(n, n = 3)
