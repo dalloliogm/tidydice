@@ -481,3 +481,17 @@ test_that("review fixes: precedence, big dice, inputs, chunks", {
   expect_equal(nrow(chunked), 120000)
   expect_equal(mean(chunked$result), 4.2, tolerance = 0.02)
 })
+
+test_that("data argument: first experiment, shortcuts and piping", {
+  # formula or times given as first argument start a new experiment
+  expect_equal(unique(roll_dice_formula("2d6")$experiment), 1)
+  expect_equal(unique(roll_dice_formula(5, dice_formula = "2d6")$experiment), 1)
+  expect_equal(nrow(roll_dice_formula(5, dice_formula = "2d6")), 5)
+  expect_equal(unique(roll_dice_formula(NULL, "2d6")$experiment), 1)
+  
+  # a data frame is extended with the next experiment
+  two <- roll_dice_formula("1d6", times = 2) %>% roll_dice_formula("2d6", times = 3)
+  expect_equal(two$experiment, c(1, 1, 2, 2, 2))
+  three <- two %>% roll_dice_formula("3d6")
+  expect_equal(max(three$experiment), 3)
+})
