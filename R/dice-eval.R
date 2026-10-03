@@ -254,98 +254,149 @@ eval_dice_expression <- function(node, n, prob = NULL) {
 
 # Roll a group of dice (e.g. 4d6e6kh3) n times, return the n totals
 eval_dice_group <- function(node, n, prob) {
-
+  
   roll <- function(k) {
     sample(x = seq_len(node$sides), size = k, replace = TRUE, prob = prob)
   }
-
-  # without modifiers all dice are summed: no need to loop
+  
+  # without modifiers all dice are summed
   if (length(node$mods) == 0) {
     if (node$count == 1) {
       return(as.numeric(roll(n)))
     }
     return(rowSums(matrix(roll(n * node$count), nrow = n, ncol = node$count)))
   }
-
-  vapply(seq_len(n), function(i) {
-    roll_dice_set(node$count, node$mods, roll)
-  }, numeric(1))
+  
+  # With modifiers the sets of dice are handled together as matrices, in chunks 
+  # to limit the memory used when dice explode
+  chunk_size <- 50000
+  starts <- seq(1, n, by = chunk_size)
+  unlist(lapply(starts, function(start) {
+    roll_dice_sets(min(chunk_size, n - start + 1), node$count, node$mods, roll)
+  }), use.names = FALSE)
 }
 
-# Select dice of a set. A selector is either relative to the other kept dice
-# (h = highest n, l = lowest n) or compares the value (<, >, ==).
-# Like in d20, only kept dice can be selected.
+# Does a value match any of the selectors (that do not depend on other dice)?
+selector_matches_any <- function(sels, x) {
+  Reduce(`|`, lapply(sels, selector_matches, x = x))
+}
+
+# Select dice in every set (row) at once, returns a logical matrix. 
+# A selector is either relative to the other kept dice (h = highest n, l = lowest n)
+# or compares the value (<, >, ==). Like in d20, only kept dice can be selected.
 select_dice <- function(sels, values, kept) {
-  idx <- which(kept)
-  selected <- integer(0)
+  selected <- matrix(FALSE, nrow(values), ncol(values))
   for (sel in sels) {
-    selected <- union(selected, switch(sel$cat,
-      h = utils::head(idx[order(-values[idx], idx)], sel$num),
-      l = utils::head(idx[order(values[idx], idx)], sel$num),
-      idx[selector_matches(sel, values[idx])]))
+    selected <- selected | switch(sel$cat,
+      h = , l = {
+        # rank of each kept die inside its row (ties: leftmost die first)
+        key <- if (sel$cat == "h") -values else values
+        key[!kept] <- Inf
+        ord <- order(row(key), key, col(key))
+        rank <- matrix(0L, nrow(key), ncol(key))
+        rank[ord] <- rep(seq_len(ncol(key)), times = nrow(key))
+        kept & rank <= sel$num
+      },
+      kept & selector_matches(sel, values))
   }
   selected
 }
 
-# Roll one set of dice and apply the modifiers, in the order they are written
-roll_dice_set <- function(count, mods, roll) {
-
-  values <- roll(count)
-  kept <- rep(TRUE, count)
-  exploded <- rep(FALSE, count)
-  rolled <- count
-
-  rolled_more <- function(k) {
-    rolled <<- rolled + k
-    if (rolled > MAX_DICE_ROLLED) {
+# Roll n sets of dice at once and apply the modifiers, in the order they 
+# are written. A set is a row of the matrix `values`: `kept` tells which dice
+# still count (not dropped, and present: sets can have different sizes).
+roll_dice_sets <- function(n, count, mods, roll) {
+  
+  values <- matrix(roll(n * count), nrow = n, ncol = count)
+  kept <- matrix(TRUE, nrow = n, ncol = count)
+  exploded <- matrix(FALSE, nrow = n, ncol = count)
+  rolled <- rep(count, n) # number of dice rolled in each set
+  
+  count_rolls <- function(sel) {
+    rolled <<- rolled + rowSums(sel)
+    if (any(rolled > MAX_DICE_ROLLED)) {
       stop("Too many dice rolled.", call. = FALSE)
     }
   }
-  add_dice <- function(new) {
-    values <<- c(values, new)
-    kept <<- c(kept, rep(TRUE, length(new)))
-    exploded <<- c(exploded, rep(FALSE, length(new)))
+  
+  # add dice to the sets: `n_new` is the number of new dice for each set
+  add_dice <- function(n_new) {
+    width <- max(n_new)
+    new_kept <- matrix(rep(seq_len(width), each = n), nrow = n) <= n_new
+    new_values <- matrix(NA_real_, nrow = n, ncol = width)
+    new_values[new_kept] <- roll(sum(new_kept))
+    values <<- cbind(values, new_values)
+    kept <<- cbind(kept, new_kept)
+    exploded <<- cbind(exploded, matrix(FALSE, nrow = n, ncol = width))
   }
-
+  
   for (mod in mods) {
     sels <- mod$sels
     switch(mod$op,
       k = {
-        drop <- setdiff(which(kept), select_dice(sels, values, kept))
-        kept[drop] <- FALSE
+        kept <- kept & select_dice(sels, values, kept)
       },
       p = {
-        kept[select_dice(sels, values, kept)] <- FALSE
+        kept <- kept & !select_dice(sels, values, kept)
       },
       rr = {
         # reroll until no die matches the selector
-        while (length(sel <- select_dice(sels, values, kept)) > 0) {
-          rolled_more(length(sel))
-          values[sel] <- roll(length(sel))
+        while (any(sel <- select_dice(sels, values, kept))) {
+          count_rolls(sel)
+          values[sel] <- roll(sum(sel))
         }
       },
       ro = {
         sel <- select_dice(sels, values, kept)
-        rolled_more(length(sel))
-        values[sel] <- roll(length(sel))
+        count_rolls(sel)
+        values[sel] <- roll(sum(sel))
       },
       ra = {
-        # like d20: at most one die is rolled again, and the new die is added
-        sel <- utils::head(select_dice(sels, values, kept), 1)
-        if (length(sel) > 0) {
-          rolled_more(1)
-          exploded[sel] <- TRUE
-          add_dice(roll(1))
+        # like d20: at most one die per set is rolled again, the new die is added
+        sel <- select_dice(sels, values, kept)
+        has_sel <- rowSums(sel) > 0
+        if (any(has_sel)) {
+          first <- matrix(FALSE, nrow = n, ncol = ncol(sel))
+          first[cbind(which(has_sel), max.col(sel[has_sel, , drop = FALSE], 
+                                              ties.method = "first"))] <- TRUE
+          count_rolls(first)
+          exploded <- exploded | first
+          add_dice(as.integer(has_sel))
         }
       },
       e = {
         # new dice can explode too, but a die explodes only once
-        repeat {
-          sel <- setdiff(select_dice(sels, values, kept), which(exploded))
-          if (length(sel) == 0) break
-          rolled_more(length(sel))
-          exploded[sel] <- TRUE
-          add_dice(roll(length(sel)))
+        sel <- select_dice(sels, values, kept) & !exploded
+        exploded <- exploded | sel
+        if (any(vapply(sels, function(x) x$cat %in% c("h", "l"), 
+                                        logical(1)))) {
+          # selectors that depend on the other dice: look at the whole sets
+          while (any(sel)) {
+            count_rolls(sel)
+            add_dice(rowSums(sel))
+            sel <- select_dice(sels, values, kept) & !exploded
+            exploded <- exploded | sel
+          }
+        } else {
+          # otherwise only the new dice can explode: work on blocks of new dice
+          blocks <- list()
+          n_new <- rowSums(sel)
+          while (any(n_new > 0)) {
+            count_rolls(sel)
+            width <- max(n_new)
+            block_kept <- matrix(rep(seq_len(width), each = n), nrow = n) <= n_new
+            block_values <- matrix(NA_real_, nrow = n, ncol = width)
+            block_values[block_kept] <- roll(sum(block_kept))
+            sel <- block_kept & selector_matches_any(sels, block_values)
+            blocks[[length(blocks) + 1]] <- list(values = block_values, 
+                                                 kept = block_kept, exploded = sel)
+            n_new <- rowSums(sel)
+          }
+          if (length(blocks) > 0) {
+            values <- do.call(cbind, c(list(values), lapply(blocks, `[[`, "values")))
+            kept <- do.call(cbind, c(list(kept), lapply(blocks, `[[`, "kept")))
+            exploded <- do.call(cbind, c(list(exploded), lapply(blocks, `[[`, "exploded")))
+          }
         }
       },
       mi = {
@@ -356,6 +407,7 @@ roll_dice_set <- function(count, mods, roll) {
       }
     )
   }
-
-  sum(values[kept])
+  
+  values[!kept] <- 0
+  rowSums(values)
 }

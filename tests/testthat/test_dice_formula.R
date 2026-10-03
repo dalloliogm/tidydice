@@ -404,7 +404,8 @@ test_that("Avrae modifiers", {
   expect_equal(mean_of("1d6ro<3"), 4/6*4.5 + 2/6*3.5 + 0, tolerance = 0.03) 
   expect_equal(mean_of("1d6ra1"), 3.5 + 3.5/6, tolerance = 0.01)
   # ra explodes at most one die
-  expect_equal(max(roll_dice_formula("5d6ra<7", times = 500)$result), 36)
+  expect_true(all(roll_dice_formula("5d6ra<7", times = 50, prob = c(0,0,0,0,0,1))$result == 36))
+  expect_true(all(roll_dice_formula("5d6ra>5", times = 50, prob = c(0,0,0,0,0,1))$result == 36))
   
   # Min / max
   expect_equal(mean_of("1d6mi3"), (3+3+3+4+5+6)/6, tolerance = 0.01)

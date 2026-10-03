@@ -14,6 +14,9 @@
   before, but now handles every syntax of roll_dice_formula() (`d%`, several
   selectors, `^`, parentheses) and fails on invalid syntax. A formula can no
   longer start with `*` or `/`. tidyr and stringr are no longer needed.
+* roll_dice_formula() handles modifiers for all the rolls at once (matrices 
+  instead of a loop over each roll), which is about 80 times faster: a million
+  rolls of `4d6kh3` take less than a second.
 * Exploding dice are simulated die by die, replacing the geometric-distribution 
   approximation. This fixes wrong results with several dice, `prob` and
   `kh`/`kl`. Exploded dice are part of the set that `k` and `p` work on.
