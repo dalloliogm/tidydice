@@ -210,6 +210,13 @@ roll_dice_formula <- function(data=NULL,
     assertthat::assert_that(times > 0)
   }
 
+  assertthat::assert_that(is.character(dice_formula) && length(dice_formula) == 1, 
+                          msg = "dice_formula must be a single character string")
+  assertthat::assert_that(is.numeric(times) && length(times) == 1 && times >= 1, 
+                          msg = "times must be a number >= 1")
+  assertthat::assert_that(is.numeric(rounds) && length(rounds) == 1 && rounds >= 1, 
+                          msg = "rounds must be a number >= 1")
+
   # define variables to pass CRAN checks
   result <- NULL
   experiment_id <- NULL

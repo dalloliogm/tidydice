@@ -448,3 +448,36 @@ test_that("unsupported or invalid syntax is an error, not ignored", {
   expect_error(roll_dice_formula("5+3"), "at least one d statement")
   expect_error(roll_dice_formula("1d6 [fire]"), "cannot parse")
 })
+
+
+test_that("review fixes: precedence, big dice, inputs, chunks", {
+  # unary minus is weaker than ^, like in R
+  expect_equal(roll_dice_formula("-2^2+1d1")$result, -3)
+  expect_equal(roll_dice_formula("2*-3+1d1")$result, -5)
+  expect_equal(roll_dice_formula("2^-1+1d1")$result, 1.5)
+  expect_equal(roll_dice_formula("-1d1^2")$result, -1)
+  
+  # huge dice are not enumerated when the modifiers are checked
+  expect_lt(system.time(roll_dice_formula("1d1000000000rr1"))[["elapsed"]], 1)
+  expect_error(roll_dice_formula("1d1000000000rr>0"), "every side would be rerolled")
+  expect_error(roll_dice_formula("1d1000000000e<1000000001"), "every side would explode")
+  expect_error(roll_dice_formula("1d6e7"), "no side of the dice matches")
+  # selectors that together cover every side
+  expect_error(roll_dice_formula("1d6e<4>3"), "every side would explode")
+  expect_error(roll_dice_formula("1d6e<3e3e>3"), "every side would explode")
+  expect_equal(nrow(roll_dice_formula("1d6e<3>4")), 1) # 3 and 4 never explode
+  
+  # inputs
+  expect_error(roll_dice_formula("1d6", times = 0), "times must be")
+  expect_error(roll_dice_formula("1d6", rounds = 0), "rounds must be")
+  expect_error(roll_dice_formula(c("1d6", "1d4")), "single character string")
+  
+  # big jobs are rolled in chunks: same shape and values as in a single block
+  big <- roll_dice_formula("1000d6", times = 6000, seed = 1)
+  expect_equal(nrow(big), 6000)
+  expect_equal(mean(big$result), 3500, tolerance = 0.001)
+  expect_equal(big$nr, 1:6000)
+  chunked <- roll_dice_formula("1d6e6", times = 120000, rounds = 1, seed = 1)
+  expect_equal(nrow(chunked), 120000)
+  expect_equal(mean(chunked$result), 4.2, tolerance = 0.02)
+})

@@ -63,22 +63,14 @@ parse_dice_expression <- function(dice_formula, require_dice = TRUE, validate = 
   }
 
   parse_term <- function() {
-    node <- parse_power()
-    while (!is.null(op <- take("\\*(?!\\*)|/"))) {
-      node <- list(type = "binop", op = op[1], op_text = op[1], lhs = node, rhs = parse_power())
-    }
-    node
-  }
-
-  parse_power <- function() {
     node <- parse_unary()
-    if (!is.null(op <- take("\\^|\\*\\*"))) {
-      node <- list(type = "binop", op = "^", op_text = op[1], lhs = node, 
-                   rhs = parse_power())
+    while (!is.null(op <- take("\\*(?!\\*)|/"))) {
+      node <- list(type = "binop", op = op[1], op_text = op[1], lhs = node, rhs = parse_unary())
     }
     node
   }
 
+  # unary signs are weaker than ^: -2^2 is -(2^2), like in R
   parse_unary <- function() {
     if (!is.null(op <- take("[+-]"))) {
       node <- parse_unary()
@@ -87,7 +79,17 @@ parse_dice_expression <- function(dice_formula, require_dice = TRUE, validate = 
       }
       return(node)
     }
-    parse_atom()
+    parse_power()
+  }
+
+  # right associative: 2^3^2 is 2^(3^2); the exponent can be negative: 2^-1
+  parse_power <- function() {
+    node <- parse_atom()
+    if (!is.null(op <- take("\\^|\\*\\*"))) {
+      node <- list(type = "binop", op = "^", op_text = op[1], lhs = node, 
+                   rhs = parse_unary())
+    }
+    node
   }
 
   parse_atom <- function() {
@@ -188,40 +190,66 @@ selector_matches <- function(sel, x) {
          x == sel$num)
 }
 
+# Sides (between 1 and `sides`) matched by a selector that does not depend on 
+# the other dice, as an interval c(first, last). Empty if first > last.
+selector_sides <- function(sel, sides) {
+  switch(sel$cat,
+         "<" = c(1, min(sides, sel$num - 1)),
+         ">" = c(max(1, sel$num + 1), sides),
+         c(max(1, sel$num), min(sides, sel$num)))
+}
+
+# Do the selectors match some sides, or all sides, of a die? 
+# Works on intervals: sides can be large, so they are never listed.
+sides_matched <- function(sels, sides) {
+  intervals <- lapply(sels, selector_sides, sides = sides)
+  intervals <- Filter(function(x) x[1] <= x[2], intervals)
+  if (length(intervals) == 0) {
+    return(c(any = FALSE, all = FALSE))
+  }
+  intervals <- intervals[order(vapply(intervals, `[`, numeric(1), 1))]
+  covered_to <- 0 # all the sides up to this one are matched
+  for (x in intervals) {
+    if (x[1] > covered_to + 1) break
+    covered_to <- max(covered_to, x[2])
+  }
+  c(any = TRUE, all = covered_to >= sides)
+}
+
 # Check that a modifier makes sense for a die with `sides` sides
 validate_modifier <- function(mod, count, sides, can_grow) {
   op <- mod$op
-
+  
   if (op %in% c("mi", "ma")) {
     assertthat::assert_that(
       length(mod$sels) == 1 && mod$sels[[1]]$cat == "",
       msg = paste0("invalid dice_formula, '", op, "' needs a plain number, e.g. ", op, "2"))
   }
-
+  
   if (op == "k") {
     for (sel in mod$sels) {
       if (sel$cat %in% c("h", "l")) {
-        assertthat::assert_that(sel$num > 0,
+        assertthat::assert_that(sel$num > 0, 
                                 msg = "invalid kh/kl formula, can't keep less than 1 die")
-        assertthat::assert_that(can_grow || sel$num <= count,
+        assertthat::assert_that(can_grow || sel$num <= count, 
                                 msg = "invalid kh/kl formula, can't keep more dice than rolled")
       }
     }
   }
-
+  
   if (op %in% c("rr", "ro", "ra", "e")) {
     # selectors that do not depend on the other dice: can be checked now
     fixed <- Filter(function(sel) !sel$cat %in% c("h", "l"), mod$sels)
     if (length(fixed) == length(mod$sels)) {
-      sides_hit <- Reduce(`|`, lapply(fixed, selector_matches, x = seq_len(sides)))
+      matched <- sides_matched(fixed, sides)
       what <- if (op == "e") "exploding dice" else "reroll"
       assertthat::assert_that(
-        any(sides_hit),
+        matched[["any"]], 
         msg = paste0("invalid ", what, " specification, no side of the dice matches"))
       if (op %in% c("e", "rr")) {
         assertthat::assert_that(
-          !all(sides_hit),
-          msg = paste0("invalid ", what, " specification, every side would ",
+          !matched[["all"]], 
+          msg = paste0("invalid ", what, " specification, every side would ", 
                        if (op == "e") "explode" else "be rerolled"))
       }
     }
@@ -259,20 +287,22 @@ eval_dice_group <- function(node, n, prob) {
     sample(x = seq_len(node$sides), size = k, replace = TRUE, prob = prob)
   }
   
-  # without modifiers all dice are summed
-  if (length(node$mods) == 0) {
-    if (node$count == 1) {
-      return(as.numeric(roll(n)))
-    }
-    return(rowSums(matrix(roll(n * node$count), nrow = n, ncol = node$count)))
+  # The sets of dice are handled together as matrices, in chunks to limit the 
+  # memory used (many dice, or dice that explode)
+  chunk_size <- if (length(node$mods) == 0) {
+    max(1, floor(5e6 / node$count))
+  } else {
+    50000
   }
-  
-  # With modifiers the sets of dice are handled together as matrices, in chunks 
-  # to limit the memory used when dice explode
-  chunk_size <- 50000
   starts <- seq(1, n, by = chunk_size)
   unlist(lapply(starts, function(start) {
-    roll_dice_sets(min(chunk_size, n - start + 1), node$count, node$mods, roll)
+    n_chunk <- min(chunk_size, n - start + 1)
+    if (length(node$mods) == 0) {
+      # without modifiers all dice are summed
+      rowSums(matrix(roll(n_chunk * node$count), nrow = n_chunk, ncol = node$count))
+    } else {
+      roll_dice_sets(n_chunk, node$count, node$mods, roll)
+    }
   }), use.names = FALSE)
 }
 
