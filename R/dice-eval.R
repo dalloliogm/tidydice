@@ -318,16 +318,17 @@ resolve_prob <- function(node, prob = NULL) {
 #'   Dice that are not `kept` were dropped by a modifier.
 
 eval_dice_expression <- function(node, n, prob = NULL, detail = FALSE) {
-  collector <- NULL
-  if (detail) {
-    collector <- new.env()
-    collector$groups <- list()
-  }
+  # state shared by the groups of dice: the dice that were rolled in each set, 
+  # and the details (if wanted)
+  ctx <- new.env()
+  ctx$detail <- detail
+  ctx$groups <- list()
+  ctx$rolled <- rep(0, n)
   
-  total <- eval_dice_node(node, n, resolve_prob(node, prob), collector)
+  total <- eval_dice_node(node, n, resolve_prob(node, prob), ctx)
   
   if (detail) {
-    groups <- Filter(Negate(is.null), collector$groups)
+    groups <- Filter(Negate(is.null), ctx$groups)
     attr(total, "dice") <- lapply(seq_len(n), function(i) {
       tibble::as_tibble(do.call(rbind, lapply(groups, `[[`, i)))
     })
@@ -335,17 +336,17 @@ eval_dice_expression <- function(node, n, prob = NULL, detail = FALSE) {
   total
 }
 
-eval_dice_node <- function(node, n, probs, collector = NULL) {
+eval_dice_node <- function(node, n, probs, ctx) {
   switch(node$type,
     num = rep(node$value, n),
-    neg = -eval_dice_node(node$x, n, probs, collector),
+    neg = -eval_dice_node(node$x, n, probs, ctx),
     binop = {
-      lhs <- eval_dice_node(node$lhs, n, probs, collector)
-      rhs <- eval_dice_node(node$rhs, n, probs, collector)
+      lhs <- eval_dice_node(node$lhs, n, probs, ctx)
+      rhs <- eval_dice_node(node$rhs, n, probs, ctx)
       switch(node$op, "+" = lhs + rhs, "-" = lhs - rhs, "*" = lhs * rhs,
              "/" = lhs / rhs, "^" = lhs ^ rhs)
     },
-    dice = eval_dice_group(node, n, probs[[node$id]], collector)
+    dice = eval_dice_group(node, n, probs[[node$id]], ctx)
   )
 }
 
@@ -359,12 +360,15 @@ dice_rows <- function(node, values, present, kept) {
 }
 
 # Roll a group of dice (e.g. 4d6e6kh3) n times, return the n totals
-eval_dice_group <- function(node, n, prob, collector = NULL) {
+# A set can't have more than MAX_DICE_ROLLED dice rolled in all its groups 
+# (like in d20), this is checked with ctx$rolled
+eval_dice_group <- function(node, n, prob, ctx) {
   
   roll <- function(k) {
     sample(x = seq_len(node$sides), size = k, replace = TRUE, prob = prob)
   }
-  detail <- !is.null(collector)
+  detail <- ctx$detail
+  rolled <- list()
   
   # The sets of dice are handled together as matrices, in chunks to limit the 
   # memory used (many dice, or dice that explode)
@@ -384,19 +388,24 @@ eval_dice_group <- function(node, n, prob, collector = NULL) {
         all_dice <- matrix(TRUE, nrow = n_chunk, ncol = node$count)
         rows <<- c(rows, dice_rows(node, values, all_dice, all_dice))
       }
+      rolled[[length(rolled) + 1]] <<- rep(node$count, n_chunk)
       rowSums(values)
     } else {
       res <- roll_dice_sets(n_chunk, node$count, node$mods, roll, detail)
+      rolled[[length(rolled) + 1]] <<- res$rolled
       if (detail) {
         rows <<- c(rows, dice_rows(node, res$values, res$present, res$kept))
-        res$total
-      } else {
-        res
       }
+      res$total
     }
   })
+  
+  ctx$rolled <- ctx$rolled + unlist(rolled, use.names = FALSE)
+  if (any(ctx$rolled > MAX_DICE_ROLLED)) {
+    stop("Too many dice rolled.", call. = FALSE)
+  }
   if (detail) {
-    collector$groups[[node$id]] <- rows
+    ctx$groups[[node$id]] <- rows
   }
   unlist(totals, use.names = FALSE)
 }
@@ -537,8 +546,9 @@ roll_dice_sets <- function(n, count, mods, roll, detail = FALSE) {
   counted[!kept] <- 0
   total <- rowSums(counted)
   if (!detail) {
-    return(total)
+    return(list(total = total, rolled = rolled))
   }
   # absent dice (sets can have different sizes) have no value
-  list(total = total, values = values, present = !is.na(values), kept = kept)
+  list(total = total, rolled = rolled, values = values, present = !is.na(values), 
+       kept = kept)
 }

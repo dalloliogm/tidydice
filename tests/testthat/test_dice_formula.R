@@ -583,3 +583,17 @@ test_that("detail: the dice that were rolled", {
   expect_equal(nrow(two), 4)
   expect_equal(vapply(two$dice, is.null, logical(1)), c(TRUE, TRUE, FALSE, FALSE))
 })
+
+test_that("a set can't have more than 1000 dice in all its groups", {
+  expect_equal(nrow(roll_dice_formula("1000d6")), 1)
+  expect_error(roll_dice_formula("500d6+501d6"), "Too many dice rolled")
+  expect_error(roll_dice_formula("1000d6+1d6"), "Too many dice rolled")
+  expect_error(roll_dice_formula("500d6+501d6", times = 70000), "Too many dice rolled")
+  expect_equal(nrow(roll_dice_formula("500d6+500d6", times = 3)), 3)
+  # dice that explode or are rerolled count too
+  expect_error(roll_dice_formula("999d6e<6+1d6e<6", times = 5), "Too many dice rolled")
+  expect_equal(nrow(roll_dice_formula("400d6k>3+400d6p<3", times = 3)), 3)
+  # same with the details, and numbers are not dice
+  expect_error(roll_dice_formula("600d6+600d6", detail = TRUE), "Too many dice rolled")
+  expect_equal(roll_dice_formula("1d1+1000", times = 2)$result, c(1001, 1001))
+})

@@ -79,3 +79,15 @@ test_that("plot_coin and plot_binom draw without warnings", {
   expect_equal(draw_warnings(plot_binom(binom_dice(times = 10, prob = c(1, 1, 1, 1, 1, 3)))), 
                character(0))
 })
+
+test_that("plot_coin writes the result on the coins", {
+  texts <- function(p) {
+    unlist(lapply(p$layers, function(l) if (inherits(l$geom, "GeomText")) l$data$label))
+  }
+  d <- force_coin(c(1, 2, 2))
+  expect_equal(texts(plot_coin(d)), c("1", "2", "2"))
+  expect_null(texts(plot_coin(d, show_result = FALSE)))
+  # results of formulas
+  expect_equal(texts(plot_coin(roll_dice_formula("1d1+1", times = 2))), c("2", "2"))
+  expect_equal(draw_warnings(plot_coin(flip_coin(times = 4, rounds = 2, seed = 3))), character(0))
+})

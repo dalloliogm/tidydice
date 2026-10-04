@@ -121,7 +121,8 @@ flatten_dice_expression <- function(node, sign = "+") {
 #' 
 #' Not supported (yet): comments, lists of numbers like `(1,2,3)kh1`, 
 #' functions, `//` and `%` operators. Invalid syntax is an error.
-#' A set can't contain more than 1000 dice.
+#' Like in Avrae, no more than 1000 dice can be rolled for a result, in all the
+#' groups of dice together (dice that explode or are rerolled count too).
 #' 
 #' @param data Data from a previous experiment
 #' @param dice_formula Dice formula (e.g. "1d6" = 1 dice with 6 sides). 
