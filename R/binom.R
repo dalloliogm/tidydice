@@ -41,9 +41,10 @@ binom_dice <- function(times, sides = 6, success = 6, prob = NULL) {
     assertthat::assert_that(is.numeric(prob), msg = "prob must be numeric")
     assertthat::assert_that(length(prob) == sides, 
                             msg = "prob must contain a probability for each side")
-    assertthat::assert_that(!anyNA(prob) && all(prob >= 0) && sum(prob) > 0, 
+    assertthat::assert_that(all(is.finite(prob)) && all(prob >= 0) && sum(prob) > 0,
                             msg = "prob must be positive")
-    prob_success <- sum(prob[success_sides]) / sum(prob)
+    weights <- prob / max(prob) # avoid overflow when finite weights are large
+    prob_success <- sum(weights[success_sides]) / sum(weights)
   }
   
   # binomial distribution

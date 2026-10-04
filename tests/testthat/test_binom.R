@@ -58,3 +58,12 @@ test_that("binom_dice() and binom_coin() with unfair dice", {
   expect_error(binom_dice(times = 3, prob = rep(0, 6)), "must be positive")
   expect_error(binom_dice(times = 3, prob = "a"), "must be numeric")
 })
+
+
+test_that("binomial weights must be finite and normalize without overflow", {
+  for (bad in c(Inf, -Inf, NA_real_, NaN)) {
+    expect_error(binom_dice(2, prob = c(rep(1, 5), bad)), "must be positive")
+    expect_error(binom_coin(2, prob = c(1, bad)), "must be positive")
+  }
+  expect_equal(binom_coin(2, prob = c(1e308, 1e308)), binom_coin(2))
+})

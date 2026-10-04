@@ -143,8 +143,10 @@ parse_dice_expression <- function(dice_formula, require_dice = TRUE, validate = 
     }
     
     can_grow <- FALSE # can the set contain more dice than `count`?
+    values_changed <- FALSE # mi/ma can create values outside the original faces
     for (mod in mods) {
-      if (validate) validate_modifier(mod, count, sides, can_grow)
+      if (validate) validate_modifier(mod, count, sides, can_grow, values_changed)
+      if (mod$op %in% c("mi", "ma")) values_changed <- TRUE
       if (mod$op %in% c("e", "ra")) {
         can_grow <- TRUE
       }
@@ -214,7 +216,7 @@ sides_matched <- function(sels, sides) {
 }
 
 # Check that a modifier makes sense for a die with `sides` sides
-validate_modifier <- function(mod, count, sides, can_grow) {
+validate_modifier <- function(mod, count, sides, can_grow, values_changed = FALSE) {
   op <- mod$op
   
   if (op %in% c("mi", "ma")) {
@@ -247,7 +249,7 @@ validate_modifier <- function(mod, count, sides, can_grow) {
     matched <- sides_matched(fixed, sides)
     what <- if (op == "e") "exploding dice" else "reroll"
     # h or l always select a die, so "no side matches" only without them
-    if (length(fixed) == length(mod$sels)) {
+    if (length(fixed) == length(mod$sels) && !values_changed) {
       assertthat::assert_that(
         matched[["any"]], 
         msg = paste0("invalid ", what, " specification, no side of the dice matches"))
@@ -500,7 +502,9 @@ roll_dice_sets <- function(n, count, mods, roll, detail = FALSE) {
         }
       },
       e = {
-        # new dice can explode too, but a die explodes only once
+        # Each explosion operation starts a new history, including after ra.
+        exploded <- matrix(FALSE, nrow(values), ncol(values))
+        # new dice can explode too, but a die explodes only once per operation
         sel <- select_dice(sels, values, kept) & !exploded
         exploded <- exploded | sel
         if (any(vapply(sels, function(x) x$cat %in% c("h", "l"), 

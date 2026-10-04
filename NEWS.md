@@ -1,5 +1,10 @@
 ## tidydice (development version)
 
+* roll_dice_formula() tracks explosions separately for each modifier, and accepts
+  selectors matching values created by earlier `mi` or `ma` modifiers.
+* binom_dice() and binom_coin() reject non-finite probability weights and
+  normalize large finite weights without overflow.
+
 * plot_coin() writes the result on each coin (`show_result = FALSE` for blank
   coins). The result was ignored before, so only the color showed a success.
 * roll_dice_formula() has no limit to the number of dice. Avrae stops at 1000

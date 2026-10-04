@@ -622,3 +622,34 @@ test_that("there is no limit to the number of dice, but formulas that never end 
   # numbers are not dice
   expect_equal(roll_dice_formula("1d1+1000", times = 2)$result, c(1001, 1001))
 })
+
+
+test_that("explosion history is local to each operation", {
+  evaluate <- function(formula, draws) {
+    node <- tidydice:::parse_dice_expression(formula)
+    cursor <- 0L
+    roll <- function(k) {
+      out <- draws[cursor + seq_len(k)]
+      cursor <<- cursor + k
+      out
+    }
+    tidydice:::roll_dice_sets(1, node$count, node$mods, roll, TRUE)
+  }
+  # ra adds a 2; the later e must also explode the original 1.
+  result <- evaluate("1d2ra1e1", c(1, 2, 2))
+  expect_equal(result$total, 5)
+  expect_equal(as.numeric(result$values), c(1, 2, 2))
+  # Separate e operations can select dice that exploded earlier.
+  result <- evaluate("1d2e1ma1e1", c(1, 2, 2, 2))
+  expect_equal(result$total, 6)
+  expect_equal(as.numeric(result$values), c(1, 1, 2, 2))
+})
+
+test_that("selectors can match values created by mi and ma", {
+  expect_equal(roll_dice_formula("1d6mi7e7", prob = c(1, 0, 0, 0, 0, 0))$result, 8)
+  expect_equal(roll_dice_formula("1d6ma0rr0", prob = c(1, 0, 0, 0, 0, 0))$result, 1)
+  expect_equal(roll_dice_formula("1d6mi7ro7", prob = c(0, 1, 0, 0, 0, 0))$result, 2)
+  expect_equal(roll_dice_formula("1d6ma0ra0", prob = c(0, 1, 0, 0, 0, 0))$result, 2)
+  expect_error(roll_dice_formula("1d6mi7e<7"), "every side would explode")
+  expect_error(roll_dice_formula("1d6ma0rr1", prob = c(1, 0, 0, 0, 0, 0)), "never ends")
+})
