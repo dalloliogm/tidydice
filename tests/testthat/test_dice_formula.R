@@ -612,6 +612,12 @@ test_that("there is no limit to the number of dice, but formulas that never end 
   expect_error(roll_dice_formula("1d6+1d4rr<3", prob = list(NULL, c(1, 1, 0, 0))), "never ends")
   expect_equal(nrow(roll_dice_formula("1d6ro1", prob = c(1, 0, 0, 0, 0, 0))), 1)
   expect_equal(nrow(roll_dice_formula("1d6e6", prob = c(1, 0, 0, 0, 0, 0))), 1) # never a 6
+  # h or l together with selectors that match every side (or all the probability)
+  expect_error(roll_dice_formula("1d1e1h1"), "every side would explode")
+  expect_error(roll_dice_formula("1d6e<7h1"), "every side would explode")
+  expect_error(roll_dice_formula("1d6e6h1", prob = c(0, 0, 0, 0, 0, 1)), "never ends")
+  expect_equal(nrow(roll_dice_formula("1d6e6h1", times = 10)), 10)
+  expect_equal(nrow(roll_dice_formula("1d6e6h1", prob = c(1, 0, 0, 0, 0, 1), times = 10)), 10)
   
   # numbers are not dice
   expect_equal(roll_dice_formula("1d1+1000", times = 2)$result, c(1001, 1001))

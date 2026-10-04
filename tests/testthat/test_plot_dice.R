@@ -82,7 +82,8 @@ test_that("plot_coin and plot_binom draw without warnings", {
 
 test_that("plot_coin writes the result on the coins", {
   texts <- function(p) {
-    unlist(lapply(p$layers, function(l) if (inherits(l$geom, "GeomText")) l$data$label))
+    unlist(lapply(p$layers, function(l) if (inherits(l$geom, "GeomText")) l$data$label), 
+           use.names = FALSE)
   }
   d <- force_coin(c(1, 2, 2))
   expect_equal(texts(plot_coin(d)), c("1", "2", "2"))

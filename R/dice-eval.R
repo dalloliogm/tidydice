@@ -244,18 +244,20 @@ validate_modifier <- function(mod, count, sides, can_grow) {
   if (op %in% c("rr", "ro", "ra", "e")) {
     # selectors that do not depend on the other dice: can be checked now
     fixed <- Filter(function(sel) !sel$cat %in% c("h", "l"), mod$sels)
+    matched <- sides_matched(fixed, sides)
+    what <- if (op == "e") "exploding dice" else "reroll"
+    # h or l always select a die, so "no side matches" only without them
     if (length(fixed) == length(mod$sels)) {
-      matched <- sides_matched(fixed, sides)
-      what <- if (op == "e") "exploding dice" else "reroll"
       assertthat::assert_that(
         matched[["any"]], 
         msg = paste0("invalid ", what, " specification, no side of the dice matches"))
-      if (op %in% c("e", "rr")) {
-        assertthat::assert_that(
-          !matched[["all"]], 
-          msg = paste0("invalid ", what, " specification, every side would ", 
-                       if (op == "e") "explode" else "be rerolled"))
-      }
+    }
+    # but if the other selectors match every side, h or l can't stop it (e1h1 on a d1)
+    if (op %in% c("e", "rr")) {
+      assertthat::assert_that(
+        !matched[["all"]], 
+        msg = paste0("invalid ", what, " specification, every side would ", 
+                     if (op == "e") "explode" else "be rerolled"))
     }
   }
   invisible(TRUE)
@@ -316,8 +318,10 @@ resolve_prob <- function(node, prob = NULL) {
 check_prob_terminates <- function(group, prob) {
   for (mod in group$mods) {
     if (!mod$op %in% c("rr", "e")) next
-    if (any(vapply(mod$sels, function(sel) sel$cat %in% c("h", "l"), logical(1)))) next
-    sides_hit <- selector_matches_any(mod$sels, seq_len(group$sides))
+    # only the selectors that do not depend on the other dice: h or l can't stop it
+    fixed <- Filter(function(sel) !sel$cat %in% c("h", "l"), mod$sels)
+    if (length(fixed) == 0) next
+    sides_hit <- selector_matches_any(fixed, seq_len(group$sides))
     assertthat::assert_that(
       sum(prob[!sides_hit]) > 0,
       msg = paste0("invalid ", if (mod$op == "e") "exploding dice" else "reroll", 
