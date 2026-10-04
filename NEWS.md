@@ -2,8 +2,11 @@
 
 * plot_coin() writes the result on each coin (`show_result = FALSE` for blank
   coins). The result was ignored before, so only the color showed a success.
-* roll_dice_formula(): the limit of 1000 dice is for the whole formula, like in 
-  Avrae, not for each group of dice (`600d6+600d6` is an error).
+* roll_dice_formula() has no limit to the number of dice. Avrae stops at 1000
+  dice to protect a chat bot, but here that error also stopped legitimate 
+  formulas (a long chain of explosions). Instead, formulas that would never 
+  end are an error: `rr` with `h` or `l` (`3d6rrh1`), and `rr` or `e` on the 
+  sides that have all the probability of an unfair dice.
 * roll_dice() decides the first experiment from `data`, not from `missing(data)`, 
   which was wrong for flip_coin() and for `roll_dice(3)`. The result did not change.
 * plot_dice() and plot_coin() use `linewidth` instead of `size` for lines, which is 

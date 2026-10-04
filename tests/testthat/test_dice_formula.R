@@ -434,7 +434,6 @@ test_that("Avrae modifiers", {
   
   # Limits like in d20: no endless loops
   expect_error(roll_dice_formula("1d6rr>0"), "every side would be rerolled")
-  expect_error(roll_dice_formula("1000d6e6", times = 2), "Too many dice rolled")
   expect_error(roll_dice_formula("2d6rr7"), "no side of the dice matches")
 })
 
@@ -584,16 +583,36 @@ test_that("detail: the dice that were rolled", {
   expect_equal(vapply(two$dice, is.null, logical(1)), c(TRUE, TRUE, FALSE, FALSE))
 })
 
-test_that("a set can't have more than 1000 dice in all its groups", {
+test_that("there is no limit to the number of dice, but formulas that never end are errors", {
+  # many dice, also above the 1000 of Avrae
   expect_equal(nrow(roll_dice_formula("1000d6")), 1)
-  expect_error(roll_dice_formula("500d6+501d6"), "Too many dice rolled")
-  expect_error(roll_dice_formula("1000d6+1d6"), "Too many dice rolled")
-  expect_error(roll_dice_formula("500d6+501d6", times = 70000), "Too many dice rolled")
-  expect_equal(nrow(roll_dice_formula("500d6+500d6", times = 3)), 3)
-  # dice that explode or are rerolled count too
-  expect_error(roll_dice_formula("999d6e<6+1d6e<6", times = 5), "Too many dice rolled")
-  expect_equal(nrow(roll_dice_formula("400d6k>3+400d6p<3", times = 3)), 3)
-  # same with the details, and numbers are not dice
-  expect_error(roll_dice_formula("600d6+600d6", detail = TRUE), "Too many dice rolled")
+  expect_equal(mean(roll_dice_formula("2000d6", times = 50, seed = 1)$result), 7000, tolerance = 0.01)
+  expect_equal(mean(roll_dice_formula("500d6+501d6", times = 50, seed = 1)$result), 3503.5, 
+               tolerance = 0.01)
+  # keeping 4000 of 5000 dice: more than the average of 4000 dice, at most 4000 sixes
+  kept <- roll_dice_formula("5000d6kh4000", times = 5, seed = 1)$result
+  expect_true(all(kept > 4000 * 3.5 & kept <= 4000 * 6))
+  expect_equal(nrow(roll_dice_formula("3000d6e6", times = 3, detail = TRUE)$dice[[1]]) > 3000, TRUE)
+  
+  # long chains of explosions are possible, and have the right distribution: 
+  # 1d6e6 with a 99% chance of a 6 has a mean of 6 * 0.99 / 0.01 + ... 
+  p <- c(.002, .002, .002, .002, .002, .99)
+  expect_equal(mean(roll_dice_formula("1d6e6", prob = p, times = 20000, seed = 1)$result), 
+               (sum((1:5) * .002) + 6 * .99) / (1 - .99), tolerance = 0.05)
+  
+  # formulas that would never end: rr on the highest or lowest dice, and rerolling
+  # or exploding on the sides that have all the probability
+  expect_error(roll_dice_formula("3d6rrh1"), "would never end")
+  expect_error(roll_dice_formula("3d6rrl1"), "would never end")
+  expect_error(roll_dice_formula("3d6rr1h1"), "would never end")
+  expect_equal(nrow(roll_dice_formula("3d6roh1")), 1) # once is fine
+  expect_error(roll_dice_formula("1d6e6", prob = c(0, 0, 0, 0, 0, 1)), "never ends")
+  expect_error(roll_dice_formula("1d6e>4", prob = c(0, 0, 0, 0, 1, 1)), "never ends")
+  expect_error(roll_dice_formula("1d6rr1", prob = c(1, 0, 0, 0, 0, 0)), "never ends")
+  expect_error(roll_dice_formula("1d6+1d4rr<3", prob = list(NULL, c(1, 1, 0, 0))), "never ends")
+  expect_equal(nrow(roll_dice_formula("1d6ro1", prob = c(1, 0, 0, 0, 0, 0))), 1)
+  expect_equal(nrow(roll_dice_formula("1d6e6", prob = c(1, 0, 0, 0, 0, 0))), 1) # never a 6
+  
+  # numbers are not dice
   expect_equal(roll_dice_formula("1d1+1000", times = 2)$result, c(1001, 1001))
 })

@@ -85,8 +85,11 @@ Only the dice that are not dropped can be selected.
 
 Not supported (yet): comments, lists of numbers like \verb{(1,2,3)kh1},
 functions, \verb{//} and \verb{\%} operators. Invalid syntax is an error.
-Like in Avrae, no more than 1000 dice can be rolled for a result, in all the
-groups of dice together (dice that explode or are rerolled count too).
+There is no limit to the number of dice (Avrae stops at 1000), but formulas
+that would never end are an error: \code{rr} with \code{h} or \code{l} (the highest dice are
+always there to be rerolled), and rerolling (\code{rr}) or exploding (\code{e}) on sides
+that hold all the probability of an unfair dice. Dice that almost always explode
+(e.g. a 99.999\% chance) take a very long time.
 }
 \examples{
 # roll one 6-sided dice

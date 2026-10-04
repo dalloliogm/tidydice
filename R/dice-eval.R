@@ -17,9 +17,6 @@
 #  A parsed expression is a tree of lists with a `type` of "num", "neg",
 #  "binop" or "dice".
 
-# Maximum number of dice rolled for one set of dice (same as d20)
-MAX_DICE_ROLLED <- 1000
-
 # --- Parser ------------------------------------------------------------------
 
 #' Parse a dice expression
@@ -118,7 +115,6 @@ parse_dice_expression <- function(dice_formula, require_dice = TRUE, validate = 
     sides <- if (sides == "%") 100 else as.numeric(sides)
     assertthat::assert_that(count >= 1, msg = "cannot roll 0 dice!")
     assertthat::assert_that(sides >= 1, msg = "cannot roll a d0!")
-    assertthat::assert_that(count <= MAX_DICE_ROLLED, msg = "Too many dice rolled.")
     st$n_dice <- st$n_dice + 1L
     list(type = "dice", id = st$n_dice, count = count, sides = sides, 
          mods = list(), raw_mods = list())
@@ -238,6 +234,13 @@ validate_modifier <- function(mod, count, sides, can_grow) {
     }
   }
   
+  if (op == "rr") {
+    # the highest (or lowest) dice are always there to be rerolled
+    assertthat::assert_that(
+      !any(vapply(mod$sels, function(sel) sel$cat %in% c("h", "l"), logical(1))),
+      msg = "invalid reroll specification, rr with h or l would never end (use ro)")
+  }
+  
   if (op %in% c("rr", "ro", "ra", "e")) {
     # selectors that do not depend on the other dice: can be checked now
     fixed <- Filter(function(sel) !sel$cat %in% c("h", "l"), mod$sels)
@@ -303,8 +306,24 @@ resolve_prob <- function(node, prob = NULL) {
       msg = paste0("prob has ", length(probs[[i]]), " values, but dice group ", i, 
                    " has ", groups[[i]]$sides, " sides. Use a list with one vector ", 
                    "of probabilities for each group of dice to mix dice with different sides"))
+    check_prob_terminates(groups[[i]], probs[[i]])
   }
   probs
+}
+
+# With unfair dice, rerolling or exploding on sides that have all the probability 
+# never ends: every die would roll one of them. 
+check_prob_terminates <- function(group, prob) {
+  for (mod in group$mods) {
+    if (!mod$op %in% c("rr", "e")) next
+    if (any(vapply(mod$sels, function(sel) sel$cat %in% c("h", "l"), logical(1)))) next
+    sides_hit <- selector_matches_any(mod$sels, seq_len(group$sides))
+    assertthat::assert_that(
+      sum(prob[!sides_hit]) > 0,
+      msg = paste0("invalid ", if (mod$op == "e") "exploding dice" else "reroll", 
+                   " specification, with this prob every die would ", 
+                   if (mod$op == "e") "explode" else "be rerolled", " (it never ends)"))
+  }
 }
 
 #' Evaluate a parsed dice expression
@@ -318,12 +337,10 @@ resolve_prob <- function(node, prob = NULL) {
 #'   Dice that are not `kept` were dropped by a modifier.
 
 eval_dice_expression <- function(node, n, prob = NULL, detail = FALSE) {
-  # state shared by the groups of dice: the dice that were rolled in each set, 
-  # and the details (if wanted)
+  # state shared by the groups of dice: the details (if wanted)
   ctx <- new.env()
   ctx$detail <- detail
   ctx$groups <- list()
-  ctx$rolled <- rep(0, n)
   
   total <- eval_dice_node(node, n, resolve_prob(node, prob), ctx)
   
@@ -360,15 +377,12 @@ dice_rows <- function(node, values, present, kept) {
 }
 
 # Roll a group of dice (e.g. 4d6e6kh3) n times, return the n totals
-# A set can't have more than MAX_DICE_ROLLED dice rolled in all its groups 
-# (like in d20), this is checked with ctx$rolled
 eval_dice_group <- function(node, n, prob, ctx) {
   
   roll <- function(k) {
     sample(x = seq_len(node$sides), size = k, replace = TRUE, prob = prob)
   }
   detail <- ctx$detail
-  rolled <- list()
   
   # The sets of dice are handled together as matrices, in chunks to limit the 
   # memory used (many dice, or dice that explode)
@@ -388,11 +402,9 @@ eval_dice_group <- function(node, n, prob, ctx) {
         all_dice <- matrix(TRUE, nrow = n_chunk, ncol = node$count)
         rows <<- c(rows, dice_rows(node, values, all_dice, all_dice))
       }
-      rolled[[length(rolled) + 1]] <<- rep(node$count, n_chunk)
       rowSums(values)
     } else {
       res <- roll_dice_sets(n_chunk, node$count, node$mods, roll, detail)
-      rolled[[length(rolled) + 1]] <<- res$rolled
       if (detail) {
         rows <<- c(rows, dice_rows(node, res$values, res$present, res$kept))
       }
@@ -400,10 +412,6 @@ eval_dice_group <- function(node, n, prob, ctx) {
     }
   })
   
-  ctx$rolled <- ctx$rolled + unlist(rolled, use.names = FALSE)
-  if (any(ctx$rolled > MAX_DICE_ROLLED)) {
-    stop("Too many dice rolled.", call. = FALSE)
-  }
   if (detail) {
     ctx$groups[[node$id]] <- rows
   }
@@ -444,14 +452,6 @@ roll_dice_sets <- function(n, count, mods, roll, detail = FALSE) {
   values <- matrix(roll(n * count), nrow = n, ncol = count)
   kept <- matrix(TRUE, nrow = n, ncol = count)
   exploded <- matrix(FALSE, nrow = n, ncol = count)
-  rolled <- rep(count, n) # number of dice rolled in each set
-  
-  count_rolls <- function(sel) {
-    rolled <<- rolled + rowSums(sel)
-    if (any(rolled > MAX_DICE_ROLLED)) {
-      stop("Too many dice rolled.", call. = FALSE)
-    }
-  }
   
   # add dice to the sets: `n_new` is the number of new dice for each set
   add_dice <- function(n_new) {
@@ -476,13 +476,11 @@ roll_dice_sets <- function(n, count, mods, roll, detail = FALSE) {
       rr = {
         # reroll until no die matches the selector
         while (any(sel <- select_dice(sels, values, kept))) {
-          count_rolls(sel)
           values[sel] <- roll(sum(sel))
         }
       },
       ro = {
         sel <- select_dice(sels, values, kept)
-        count_rolls(sel)
         values[sel] <- roll(sum(sel))
       },
       ra = {
@@ -493,7 +491,6 @@ roll_dice_sets <- function(n, count, mods, roll, detail = FALSE) {
           first <- matrix(FALSE, nrow = n, ncol = ncol(sel))
           first[cbind(which(has_sel), max.col(sel[has_sel, , drop = FALSE], 
                                               ties.method = "first"))] <- TRUE
-          count_rolls(first)
           exploded <- exploded | first
           add_dice(as.integer(has_sel))
         }
@@ -506,7 +503,6 @@ roll_dice_sets <- function(n, count, mods, roll, detail = FALSE) {
                                         logical(1)))) {
           # selectors that depend on the other dice: look at the whole sets
           while (any(sel)) {
-            count_rolls(sel)
             add_dice(rowSums(sel))
             sel <- select_dice(sels, values, kept) & !exploded
             exploded <- exploded | sel
@@ -516,7 +512,6 @@ roll_dice_sets <- function(n, count, mods, roll, detail = FALSE) {
           blocks <- list()
           n_new <- rowSums(sel)
           while (any(n_new > 0)) {
-            count_rolls(sel)
             width <- max(n_new)
             block_kept <- matrix(rep(seq_len(width), each = n), nrow = n) <= n_new
             block_values <- matrix(NA_real_, nrow = n, ncol = width)
@@ -546,9 +541,9 @@ roll_dice_sets <- function(n, count, mods, roll, detail = FALSE) {
   counted[!kept] <- 0
   total <- rowSums(counted)
   if (!detail) {
-    return(list(total = total, rolled = rolled))
+    return(list(total = total))
   }
   # absent dice (sets can have different sizes) have no value
-  list(total = total, rolled = rolled, values = values, present = !is.na(values), 
+  list(total = total, values = values, present = !is.na(values), 
        kept = kept)
 }

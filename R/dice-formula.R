@@ -121,8 +121,11 @@ flatten_dice_expression <- function(node, sign = "+") {
 #' 
 #' Not supported (yet): comments, lists of numbers like `(1,2,3)kh1`, 
 #' functions, `//` and `%` operators. Invalid syntax is an error.
-#' Like in Avrae, no more than 1000 dice can be rolled for a result, in all the
-#' groups of dice together (dice that explode or are rerolled count too).
+#' There is no limit to the number of dice (Avrae stops at 1000), but formulas 
+#' that would never end are an error: `rr` with `h` or `l` (the highest dice are 
+#' always there to be rerolled), and rerolling (`rr`) or exploding (`e`) on sides 
+#' that hold all the probability of an unfair dice. Dice that almost always explode
+#' (e.g. a 99.999% chance) take a very long time.
 #' 
 #' @param data Data from a previous experiment
 #' @param dice_formula Dice formula (e.g. "1d6" = 1 dice with 6 sides). 
